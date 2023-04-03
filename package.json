@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "debug": "vite",
+    "update-react": "rm -rf ./src/packages && cp -R ../react/packages/ ./src/packages",
     "dev": "vite --open",
     "build": "tsc && vite build",
     "preview": "vite preview"
