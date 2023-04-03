@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import App from "./App";
-import "./index.css";
+import { useState, Component } from "react";
+import { Counter } from "./examples/counter";
 
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(<Counter />);
