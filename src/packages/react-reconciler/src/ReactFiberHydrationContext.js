@@ -16,7 +16,7 @@ import type {
   SuspenseInstance,
   Container,
   HostContext,
-} from './ReactFiberHostConfig';
+} from './ReactFiberConfig';
 import type {SuspenseState} from './ReactFiberSuspenseComponent';
 import type {TreeContext} from './ReactFiberTreeContext';
 import type {CapturedValue} from './ReactCapturedValue';
@@ -37,8 +37,8 @@ import {
 } from './ReactFiberFlags';
 import {
   enableHostSingletons,
-  enableFloat,
   enableClientRenderFallbackOnTextMismatch,
+  diffInCommitPhase,
 } from 'shared/ReactFeatureFlags';
 
 import {
@@ -73,15 +73,11 @@ import {
   didNotFindHydratableTextInstance,
   didNotFindHydratableSuspenseInstance,
   resolveSingletonInstance,
-  shouldSkipHydratableForInstance,
-  shouldSkipHydratableForTextInstance,
-  shouldSkipHydratableForSuspenseInstance,
   canHydrateInstance,
   canHydrateTextInstance,
   canHydrateSuspenseInstance,
-  isHydratableType,
   isHydratableText,
-} from './ReactFiberHostConfig';
+} from './ReactFiberConfig';
 import {OffscreenLane} from './ReactFiberLane';
 import {
   getSuspendedTreeContext,
@@ -354,6 +350,7 @@ function tryHydrateInstance(fiber: Fiber, nextInstance: any) {
     nextInstance,
     fiber.type,
     fiber.pendingProps,
+    rootOrSingletonContext,
   );
   if (instance !== null) {
     fiber.stateNode = (instance: Instance);
@@ -368,7 +365,11 @@ function tryHydrateInstance(fiber: Fiber, nextInstance: any) {
 function tryHydrateText(fiber: Fiber, nextInstance: any) {
   // fiber is a HostText Fiber
   const text = fiber.pendingProps;
-  const textInstance = canHydrateTextInstance(nextInstance, text);
+  const textInstance = canHydrateTextInstance(
+    nextInstance,
+    text,
+    rootOrSingletonContext,
+  );
   if (textInstance !== null) {
     fiber.stateNode = (textInstance: TextInstance);
     hydrationParentFiber = fiber;
@@ -381,7 +382,10 @@ function tryHydrateText(fiber: Fiber, nextInstance: any) {
 
 function tryHydrateSuspense(fiber: Fiber, nextInstance: any) {
   // fiber is a SuspenseComponent Fiber
-  const suspenseInstance = canHydrateSuspenseInstance(nextInstance);
+  const suspenseInstance = canHydrateSuspenseInstance(
+    nextInstance,
+    rootOrSingletonContext,
+  );
   if (suspenseInstance !== null) {
     const suspenseState: SuspenseState = {
       dehydrated: suspenseInstance,
@@ -440,62 +444,11 @@ function claimHydratableSingleton(fiber: Fiber): void {
   }
 }
 
-function advanceToFirstAttemptableInstance(fiber: Fiber) {
-  // fiber is HostComponent Fiber
-  while (
-    nextHydratableInstance &&
-    shouldSkipHydratableForInstance(
-      nextHydratableInstance,
-      fiber.type,
-      fiber.pendingProps,
-    )
-  ) {
-    // Flow doesn't understand that inside this block nextHydratableInstance is not null
-    const instance: HydratableInstance = (nextHydratableInstance: any);
-    nextHydratableInstance = getNextHydratableSibling(instance);
-  }
-}
-
-function advanceToFirstAttemptableTextInstance() {
-  while (
-    nextHydratableInstance &&
-    shouldSkipHydratableForTextInstance(nextHydratableInstance)
-  ) {
-    // Flow doesn't understand that inside this block nextHydratableInstance is not null
-    const instance: HydratableInstance = (nextHydratableInstance: any);
-    nextHydratableInstance = getNextHydratableSibling(instance);
-  }
-}
-
-function advanceToFirstAttemptableSuspenseInstance() {
-  while (
-    nextHydratableInstance &&
-    shouldSkipHydratableForSuspenseInstance(nextHydratableInstance)
-  ) {
-    // Flow doesn't understand that inside this block nextHydratableInstance is not null
-    const instance: HydratableInstance = (nextHydratableInstance: any);
-    nextHydratableInstance = getNextHydratableSibling(instance);
-  }
-}
-
 function tryToClaimNextHydratableInstance(fiber: Fiber): void {
   if (!isHydrating) {
     return;
   }
-  if (enableFloat) {
-    if (!isHydratableType(fiber.type, fiber.pendingProps)) {
-      // This fiber never hydrates from the DOM and always does an insert
-      fiber.flags = (fiber.flags & ~Hydrating) | Placement;
-      isHydrating = false;
-      hydrationParentFiber = fiber;
-      return;
-    }
-  }
   const initialInstance = nextHydratableInstance;
-  if (rootOrSingletonContext) {
-    // We may need to skip past certain nodes in these contexts
-    advanceToFirstAttemptableInstance(fiber);
-  }
   const nextInstance = nextHydratableInstance;
   if (!nextInstance) {
     if (shouldClientRenderOnMismatch(fiber)) {
@@ -520,10 +473,6 @@ function tryToClaimNextHydratableInstance(fiber: Fiber): void {
     // might be flawed or unnecessary.
     nextHydratableInstance = getNextHydratableSibling(nextInstance);
     const prevHydrationParentFiber: Fiber = (hydrationParentFiber: any);
-    if (rootOrSingletonContext) {
-      // We may need to skip past certain nodes in these contexts
-      advanceToFirstAttemptableInstance(fiber);
-    }
     if (
       !nextHydratableInstance ||
       !tryHydrateInstance(fiber, nextHydratableInstance)
@@ -551,12 +500,6 @@ function tryToClaimNextHydratableTextInstance(fiber: Fiber): void {
   const isHydratable = isHydratableText(text);
 
   const initialInstance = nextHydratableInstance;
-  if (rootOrSingletonContext && isHydratable) {
-    // We may need to skip past certain nodes in these contexts.
-    // We don't skip if the text is not hydratable because we know no hydratables
-    // exist which could match this Fiber
-    advanceToFirstAttemptableTextInstance();
-  }
   const nextInstance = nextHydratableInstance;
   if (!nextInstance || !isHydratable) {
     // We exclude non hydrabable text because we know there are no matching hydratables.
@@ -584,11 +527,6 @@ function tryToClaimNextHydratableTextInstance(fiber: Fiber): void {
     nextHydratableInstance = getNextHydratableSibling(nextInstance);
     const prevHydrationParentFiber: Fiber = (hydrationParentFiber: any);
 
-    if (rootOrSingletonContext && isHydratable) {
-      // We may need to skip past certain nodes in these contexts
-      advanceToFirstAttemptableTextInstance();
-    }
-
     if (
       !nextHydratableInstance ||
       !tryHydrateText(fiber, nextHydratableInstance)
@@ -613,10 +551,6 @@ function tryToClaimNextHydratableSuspenseInstance(fiber: Fiber): void {
     return;
   }
   const initialInstance = nextHydratableInstance;
-  if (rootOrSingletonContext) {
-    // We may need to skip past certain nodes in these contexts
-    advanceToFirstAttemptableSuspenseInstance();
-  }
   const nextInstance = nextHydratableInstance;
   if (!nextInstance) {
     if (shouldClientRenderOnMismatch(fiber)) {
@@ -641,11 +575,6 @@ function tryToClaimNextHydratableSuspenseInstance(fiber: Fiber): void {
     // might be flawed or unnecessary.
     nextHydratableInstance = getNextHydratableSibling(nextInstance);
     const prevHydrationParentFiber: Fiber = (hydrationParentFiber: any);
-
-    if (rootOrSingletonContext) {
-      // We may need to skip past certain nodes in these contexts
-      advanceToFirstAttemptableSuspenseInstance();
-    }
 
     if (
       !nextHydratableInstance ||
@@ -687,12 +616,15 @@ function prepareToHydrateHostInstance(
     fiber,
     shouldWarnIfMismatchDev,
   );
+
   // TODO: Type this specific to this type of component.
-  fiber.updateQueue = (updatePayload: any);
-  // If the update payload indicates that there is a change or if there
-  // is a new ref we mark this as an update.
-  if (updatePayload !== null) {
-    return true;
+  if (!diffInCommitPhase) {
+    fiber.updateQueue = (updatePayload: any);
+    // If the update payload indicates that there is a change or if there
+    // is a new ref we mark this as an update.
+    if (updatePayload !== null) {
+      return true;
+    }
   }
   return false;
 }
@@ -859,7 +791,8 @@ function popHydrationState(fiber: Fiber): boolean {
       fiber.tag !== HostSingleton &&
       !(
         fiber.tag === HostComponent &&
-        shouldSetTextContent(fiber.type, fiber.memoizedProps)
+        (!shouldDeleteUnhydratedTailInstances(fiber.type) ||
+          shouldSetTextContent(fiber.type, fiber.memoizedProps))
       )
     ) {
       shouldClear = true;

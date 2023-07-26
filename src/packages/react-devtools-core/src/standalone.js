@@ -30,7 +30,7 @@ import {
   __DEBUG__,
   LOCAL_STORAGE_DEFAULT_TAB_KEY,
 } from 'react-devtools-shared/src/constants';
-import {localStorageSetItem} from '../../react-devtools-shared/src/storage';
+import {localStorageSetItem} from 'react-devtools-shared/src/storage';
 
 import type {FrontendBridge} from 'react-devtools-shared/src/bridge';
 import type {InspectedElement} from 'react-devtools-shared/src/devtools/views/Components/types';
@@ -167,7 +167,6 @@ function onDisconnected() {
   disconnectedCallback();
 }
 
-// $FlowFixMe[missing-local-annot]
 function onError({code, message}: $FlowFixMe) {
   safeUnmount();
 
@@ -300,8 +299,8 @@ type LoggerOptions = {
 };
 
 function startServer(
-  port?: number = 8097,
-  host?: string = 'localhost',
+  port: number = 8097,
+  host: string = 'localhost',
   httpsOptions?: ServerOptions,
   loggerOptions?: LoggerOptions,
 ): {close(): void} {

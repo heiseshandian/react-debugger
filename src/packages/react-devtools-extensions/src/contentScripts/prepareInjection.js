@@ -1,7 +1,9 @@
 /* global chrome */
 
 import nullthrows from 'nullthrows';
-import {IS_FIREFOX} from '../utils';
+import {SESSION_STORAGE_RELOAD_AND_PROFILE_KEY} from 'react-devtools-shared/src/constants';
+import {sessionStorageGetItem} from 'react-devtools-shared/src/storage';
+import {IS_FIREFOX, EXTENSION_CONTAINED_VERSIONS} from '../utils';
 
 // We run scripts on the page via the service worker (backgroud.js) for
 // Manifest V3 extensions (Chrome & Edge).
@@ -88,11 +90,22 @@ window.addEventListener('message', function onMessage({data, source}) {
         );
       }
       break;
-    case 'react-devtools-inject-backend':
+    case 'react-devtools-inject-backend-manager':
       if (IS_FIREFOX) {
-        injectScriptSync(
-          chrome.runtime.getURL('build/react_devtools_backend.js'),
-        );
+        injectScriptSync(chrome.runtime.getURL('build/backendManager.js'));
+      }
+      break;
+    case 'react-devtools-backend-manager':
+      if (IS_FIREFOX) {
+        data.payload?.versions?.forEach(version => {
+          if (EXTENSION_CONTAINED_VERSIONS.includes(version)) {
+            injectScriptSync(
+              chrome.runtime.getURL(
+                `/build/react_devtools_backend_${version}.js`,
+              ),
+            );
+          }
+        });
       }
       break;
   }
@@ -109,9 +122,15 @@ window.addEventListener('pageshow', function ({target}) {
   chrome.runtime.sendMessage(lastDetectionResult);
 });
 
-// Inject a __REACT_DEVTOOLS_GLOBAL_HOOK__ global for React to interact with.
-// Only do this for HTML documents though, to avoid e.g. breaking syntax highlighting for XML docs.
 if (IS_FIREFOX) {
+  // If we have just reloaded to profile, we need to inject the renderer interface before the app loads.
+  if (
+    sessionStorageGetItem(SESSION_STORAGE_RELOAD_AND_PROFILE_KEY) === 'true'
+  ) {
+    injectScriptSync(chrome.runtime.getURL('build/renderer.js'));
+  }
+  // Inject a __REACT_DEVTOOLS_GLOBAL_HOOK__ global for React to interact with.
+  // Only do this for HTML documents though, to avoid e.g. breaking syntax highlighting for XML docs.
   switch (document.contentType) {
     case 'text/html':
     case 'application/xhtml+xml': {
@@ -119,20 +138,4 @@ if (IS_FIREFOX) {
       break;
     }
   }
-}
-
-if (typeof exportFunction === 'function') {
-  // eslint-disable-next-line no-undef
-  exportFunction(
-    text => {
-      // Call clipboard.writeText from the extension content script
-      // (as it has the clipboardWrite permission) and return a Promise
-      // accessible to the webpage js code.
-      return new window.Promise((resolve, reject) =>
-        window.navigator.clipboard.writeText(text).then(resolve, reject),
-      );
-    },
-    window.wrappedJSObject.__REACT_DEVTOOLS_GLOBAL_HOOK__,
-    {defineAs: 'clipboardCopyText'},
-  );
 }

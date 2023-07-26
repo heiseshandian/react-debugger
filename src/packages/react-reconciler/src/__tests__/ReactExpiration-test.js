@@ -115,29 +115,54 @@ describe('ReactExpiration', () => {
     }
   }
 
+  function flushNextRenderIfExpired() {
+    // This will start rendering the next level of work. If the work hasn't
+    // expired yet, React will exit without doing anything. If it has expired,
+    // it will schedule a sync task.
+    Scheduler.unstable_flushExpired();
+    // Flush the sync task.
+    ReactNoop.flushSync();
+  }
+
   it('increases priority of updates as time progresses', async () => {
-    ReactNoop.render(<Text text="Step 1" />);
-    React.startTransition(() => {
-      ReactNoop.render(<Text text="Step 2" />);
-    });
+    if (gate(flags => flags.forceConcurrentByDefaultForTesting)) {
+      ReactNoop.render(<span prop="done" />);
+      expect(ReactNoop).toMatchRenderedOutput(null);
 
-    await waitFor(['Step 1']);
+      // Nothing has expired yet because time hasn't advanced.
+      flushNextRenderIfExpired();
+      expect(ReactNoop).toMatchRenderedOutput(null);
+      // Advance time a bit, but not enough to expire the low pri update.
+      ReactNoop.expire(4500);
+      flushNextRenderIfExpired();
+      expect(ReactNoop).toMatchRenderedOutput(null);
+      // Advance by another second. Now the update should expire and flush.
+      ReactNoop.expire(500);
+      flushNextRenderIfExpired();
+      expect(ReactNoop).toMatchRenderedOutput(<span prop="done" />);
+    } else {
+      ReactNoop.render(<Text text="Step 1" />);
+      React.startTransition(() => {
+        ReactNoop.render(<Text text="Step 2" />);
+      });
+      await waitFor(['Step 1']);
 
-    expect(ReactNoop).toMatchRenderedOutput('Step 1');
+      expect(ReactNoop).toMatchRenderedOutput('Step 1');
 
-    // Nothing has expired yet because time hasn't advanced.
-    await unstable_waitForExpired([]);
-    expect(ReactNoop).toMatchRenderedOutput('Step 1');
+      // Nothing has expired yet because time hasn't advanced.
+      await unstable_waitForExpired([]);
+      expect(ReactNoop).toMatchRenderedOutput('Step 1');
 
-    // Advance time a bit, but not enough to expire the low pri update.
-    ReactNoop.expire(4500);
-    await unstable_waitForExpired([]);
-    expect(ReactNoop).toMatchRenderedOutput('Step 1');
+      // Advance time a bit, but not enough to expire the low pri update.
+      ReactNoop.expire(4500);
+      await unstable_waitForExpired([]);
+      expect(ReactNoop).toMatchRenderedOutput('Step 1');
 
-    // Advance by a little bit more. Now the update should expire and flush.
-    ReactNoop.expire(500);
-    await unstable_waitForExpired(['Step 2']);
-    expect(ReactNoop).toMatchRenderedOutput('Step 2');
+      // Advance by a little bit more. Now the update should expire and flush.
+      ReactNoop.expire(500);
+      await unstable_waitForExpired(['Step 2']);
+      expect(ReactNoop).toMatchRenderedOutput('Step 2');
+    }
   });
 
   it('two updates of like priority in the same event always flush within the same batch', async () => {
@@ -222,6 +247,7 @@ describe('ReactExpiration', () => {
       React.startTransition(() => {
         ReactNoop.render(<TextClass text="A" />);
       });
+
       // Advance the timer.
       Scheduler.unstable_advanceTime(2000);
       // Partially flush the first update, then interrupt it.
@@ -290,6 +316,7 @@ describe('ReactExpiration', () => {
     React.startTransition(() => {
       ReactNoop.render(<App />);
     });
+
     await waitForAll([
       'initial [A] [render]',
       'initial [B] [render]',
@@ -305,6 +332,7 @@ describe('ReactExpiration', () => {
     React.startTransition(() => {
       subscribers.forEach(s => s.setState({text: '1'}));
     });
+
     await waitFor(['1 [A] [render]', '1 [B] [render]']);
 
     // Before the update can finish, update again. Even though no time has
@@ -379,36 +407,58 @@ describe('ReactExpiration', () => {
 
     jest.resetModules();
     Scheduler = require('scheduler');
-    const InternalTestUtils = require('internal-test-utils');
-    waitFor = InternalTestUtils.waitFor;
-    assertLog = InternalTestUtils.assertLog;
-    unstable_waitForExpired = InternalTestUtils.unstable_waitForExpired;
 
-    // Before importing the renderer, advance the current time by a number
-    // larger than the maximum allowed for bitwise operations.
-    const maxSigned31BitInt = 1073741823;
-    Scheduler.unstable_advanceTime(maxSigned31BitInt * 100);
+    if (gate(flags => flags.forceConcurrentByDefaultForTesting)) {
+      // Before importing the renderer, advance the current time by a number
+      // larger than the maximum allowed for bitwise operations.
+      const maxSigned31BitInt = 1073741823;
+      Scheduler.unstable_advanceTime(maxSigned31BitInt * 100);
+      // Now import the renderer. On module initialization, it will read the
+      // current time.
+      ReactNoop = require('react-noop-renderer');
+      ReactNoop.render('Hi');
 
-    // Now import the renderer. On module initialization, it will read the
-    // current time.
-    ReactNoop = require('react-noop-renderer');
-    React = require('react');
+      // The update should not have expired yet.
+      flushNextRenderIfExpired();
+      await waitFor([]);
+      expect(ReactNoop).toMatchRenderedOutput(null);
+      // Advance the time some more to expire the update.
+      Scheduler.unstable_advanceTime(10000);
+      flushNextRenderIfExpired();
+      await waitFor([]);
+      expect(ReactNoop).toMatchRenderedOutput('Hi');
+    } else {
+      const InternalTestUtils = require('internal-test-utils');
+      waitFor = InternalTestUtils.waitFor;
+      assertLog = InternalTestUtils.assertLog;
+      unstable_waitForExpired = InternalTestUtils.unstable_waitForExpired;
 
-    ReactNoop.render(<Text text="Step 1" />);
-    React.startTransition(() => {
-      ReactNoop.render(<Text text="Step 2" />);
-    });
-    await waitFor(['Step 1']);
+      // Before importing the renderer, advance the current time by a number
+      // larger than the maximum allowed for bitwise operations.
+      const maxSigned31BitInt = 1073741823;
+      Scheduler.unstable_advanceTime(maxSigned31BitInt * 100);
 
-    // The update should not have expired yet.
-    await unstable_waitForExpired([]);
+      // Now import the renderer. On module initialization, it will read the
+      // current time.
+      ReactNoop = require('react-noop-renderer');
+      React = require('react');
 
-    expect(ReactNoop).toMatchRenderedOutput('Step 1');
+      ReactNoop.render(<Text text="Step 1" />);
+      React.startTransition(() => {
+        ReactNoop.render(<Text text="Step 2" />);
+      });
+      await waitFor(['Step 1']);
 
-    // Advance the time some more to expire the update.
-    Scheduler.unstable_advanceTime(10000);
-    await unstable_waitForExpired(['Step 2']);
-    expect(ReactNoop).toMatchRenderedOutput('Step 2');
+      // The update should not have expired yet.
+      await unstable_waitForExpired([]);
+
+      expect(ReactNoop).toMatchRenderedOutput('Step 1');
+
+      // Advance the time some more to expire the update.
+      Scheduler.unstable_advanceTime(10000);
+      await unstable_waitForExpired(['Step 2']);
+      expect(ReactNoop).toMatchRenderedOutput('Step 2');
+    }
   });
 
   it('should measure callback timeout relative to current time, not start-up time', async () => {
@@ -422,6 +472,7 @@ describe('ReactExpiration', () => {
     React.startTransition(() => {
       ReactNoop.render('Hi');
     });
+
     await unstable_waitForExpired([]);
     expect(ReactNoop).toMatchRenderedOutput(null);
 

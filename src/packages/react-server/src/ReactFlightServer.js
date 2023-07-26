@@ -7,15 +7,35 @@
  * @flow
  */
 
+import type {Chunk, BinaryChunk, Destination} from './ReactServerStreamConfig';
+
+import {enableBinaryFlight} from 'shared/ReactFeatureFlags';
+
+import {
+  scheduleWork,
+  flushBuffered,
+  beginWriting,
+  writeChunkAndReturn,
+  stringToChunk,
+  typedArrayToBinaryChunk,
+  byteLengthOfChunk,
+  byteLengthOfBinaryChunk,
+  completeWriting,
+  close,
+  closeWithError,
+} from './ReactServerStreamConfig';
+
+export type {Destination, Chunk} from './ReactServerStreamConfig';
+
 import type {
-  Destination,
-  Chunk,
   ClientManifest,
   ClientReferenceMetadata,
   ClientReference,
   ClientReferenceKey,
   ServerReference,
   ServerReferenceId,
+  Hints,
+  HintModel,
 } from './ReactFlightServerConfig';
 import type {ContextSnapshot} from './ReactFlightNewContext';
 import type {ThenableState} from './ReactFlightThenable';
@@ -32,18 +52,6 @@ import type {
 import type {LazyComponent} from 'react/src/ReactLazy';
 
 import {
-  scheduleWork,
-  beginWriting,
-  writeChunkAndReturn,
-  completeWriting,
-  flushBuffered,
-  close,
-  closeWithError,
-  processModelChunk,
-  processImportChunk,
-  processErrorChunkProd,
-  processErrorChunkDev,
-  processReferenceChunk,
   resolveClientReferenceMetadata,
   getServerReferenceId,
   getServerReferenceBoundArguments,
@@ -52,6 +60,8 @@ import {
   isServerReference,
   supportsRequestStorage,
   requestStorage,
+  prepareHostDispatcher,
+  createHints,
 } from './ReactFlightServerConfig';
 
 import {
@@ -61,11 +71,7 @@ import {
   getThenableStateAfterSuspending,
   resetHooksForRequest,
 } from './ReactFlightHooks';
-import {
-  DefaultCacheDispatcher,
-  getCurrentCache,
-  setCurrentCache,
-} from './ReactFlightCache';
+import {DefaultCacheDispatcher} from './flight/ReactFlightServerCache';
 import {
   pushProvider,
   popProvider,
@@ -98,6 +104,16 @@ import ReactSharedInternals from 'shared/ReactSharedInternals';
 import isArray from 'shared/isArray';
 import {SuspenseException, getSuspendedThenable} from './ReactFlightThenable';
 
+type JSONValue =
+  | string
+  | boolean
+  | number
+  | null
+  | {+[key: string]: JSONValue}
+  | $ReadOnlyArray<JSONValue>;
+
+const stringify = JSON.stringify;
+
 type ReactJSONValue =
   | string
   | boolean
@@ -125,8 +141,12 @@ export type ReactClientValue =
   | symbol
   | null
   | void
+  | bigint
   | Iterable<ReactClientValue>
   | Array<ReactClientValue>
+  | Map<ReactClientValue, ReactClientValue>
+  | Set<ReactClientValue>
+  | Date
   | ReactClientObject
   | Promise<ReactClientValue>; // Thenable<ReactClientValue>
 
@@ -148,16 +168,19 @@ type Task = {
 
 export type Request = {
   status: 0 | 1 | 2,
+  flushScheduled: boolean,
   fatalError: mixed,
   destination: null | Destination,
   bundlerConfig: ClientManifest,
   cache: Map<Function, mixed>,
   nextChunkId: number,
   pendingChunks: number,
+  hints: Hints,
   abortableTasks: Set<Task>,
   pingedTasks: Array<Task>,
   completedImportChunks: Array<Chunk>,
-  completedJSONChunks: Array<Chunk>,
+  completedHintChunks: Array<Chunk>,
+  completedRegularChunks: Array<Chunk | BinaryChunk>,
   completedErrorChunks: Array<Chunk>,
   writtenSymbols: Map<symbol, number>,
   writtenClientReferences: Map<ClientReferenceKey, number>,
@@ -196,22 +219,27 @@ export function createRequest(
       'Currently React only supports one RSC renderer at a time.',
     );
   }
+  prepareHostDispatcher();
   ReactCurrentCache.current = DefaultCacheDispatcher;
 
   const abortSet: Set<Task> = new Set();
   const pingedTasks: Array<Task> = [];
+  const hints = createHints();
   const request: Request = {
     status: OPEN,
+    flushScheduled: false,
     fatalError: null,
     destination: null,
     bundlerConfig,
     cache: new Map(),
     nextChunkId: 0,
     pendingChunks: 0,
+    hints,
     abortableTasks: abortSet,
     pingedTasks: pingedTasks,
     completedImportChunks: ([]: Array<Chunk>),
-    completedJSONChunks: ([]: Array<Chunk>),
+    completedHintChunks: ([]: Array<Chunk>),
+    completedRegularChunks: ([]: Array<Chunk | BinaryChunk>),
     completedErrorChunks: ([]: Array<Chunk>),
     writtenSymbols: new Map(),
     writtenClientReferences: new Map(),
@@ -230,6 +258,17 @@ export function createRequest(
   const rootTask = createTask(request, model, rootContext, abortSet);
   pingedTasks.push(rootTask);
   return request;
+}
+
+let currentRequest: null | Request = null;
+
+export function resolveRequest(): null | Request {
+  if (currentRequest) return currentRequest;
+  if (supportsRequestStorage) {
+    const store = requestStorage.getStore();
+    if (store) return store;
+  }
+  return null;
 }
 
 function createRootContext(
@@ -318,6 +357,23 @@ function serializeThenable(request: Request, thenable: Thenable<any>): number {
   );
 
   return newTask.id;
+}
+
+export function emitHint(
+  request: Request,
+  code: string,
+  model: HintModel,
+): void {
+  emitHintChunk(request, code, model);
+  enqueueFlush(request);
+}
+
+export function getHints(request: Request): Hints {
+  return request.hints;
+}
+
+export function getCache(request: Request): Map<Function, mixed> {
+  return request.cache;
 }
 
 function readThenable<T>(thenable: Thenable<T>): T {
@@ -502,6 +558,7 @@ function pingTask(request: Request, task: Task): void {
   const pingedTasks = request.pingedTasks;
   pingedTasks.push(task);
   if (pingedTasks.length === 1) {
+    request.flushScheduled = request.destination !== null;
     scheduleWork(() => performWork(request));
   }
 }
@@ -549,8 +606,32 @@ function serializeProviderReference(name: string): string {
   return '$P' + name;
 }
 
+function serializeNumber(number: number): string | number {
+  if (Number.isFinite(number)) {
+    if (number === 0 && 1 / number === -Infinity) {
+      return '$-0';
+    } else {
+      return number;
+    }
+  } else {
+    if (number === Infinity) {
+      return '$Infinity';
+    } else if (number === -Infinity) {
+      return '$-Infinity';
+    } else {
+      return '$NaN';
+    }
+  }
+}
+
 function serializeUndefined(): string {
   return '$undefined';
+}
+
+function serializeDateFromDateJSON(dateJSON: string): string {
+  // JSON.stringify automatically calls Date.prototype.toJSON which calls toISOString.
+  // We need only tack on a $D prefix.
+  return '$D' + dateJSON;
 }
 
 function serializeBigInt(n: bigint): string {
@@ -610,6 +691,15 @@ function serializeClientReference(
   }
 }
 
+function outlineModel(request: Request, value: any): number {
+  request.pendingChunks++;
+  const outlinedId = request.nextChunkId++;
+  // We assume that this object doesn't suspend, but a child might.
+  const processedChunk = processModelChunk(request, outlinedId, value);
+  request.completedRegularChunks.push(processedChunk);
+  return outlinedId;
+}
+
 function serializeServerReference(
   request: Request,
   parent:
@@ -635,17 +725,54 @@ function serializeServerReference(
     id: getServerReferenceId(request.bundlerConfig, serverReference),
     bound: bound ? Promise.resolve(bound) : null,
   };
-  request.pendingChunks++;
-  const metadataId = request.nextChunkId++;
-  // We assume that this object doesn't suspend.
-  const processedChunk = processModelChunk(
-    request,
-    metadataId,
-    serverReferenceMetadata,
-  );
-  request.completedJSONChunks.push(processedChunk);
+  const metadataId = outlineModel(request, serverReferenceMetadata);
   writtenServerReferences.set(serverReference, metadataId);
   return serializeServerReferenceID(metadataId);
+}
+
+function serializeLargeTextString(request: Request, text: string): string {
+  request.pendingChunks += 2;
+  const textId = request.nextChunkId++;
+  const textChunk = stringToChunk(text);
+  const headerChunk = processTextHeader(
+    request,
+    textId,
+    byteLengthOfChunk(textChunk),
+  );
+  request.completedRegularChunks.push(headerChunk, textChunk);
+  return serializeByValueID(textId);
+}
+
+function serializeMap(
+  request: Request,
+  map: Map<ReactClientValue, ReactClientValue>,
+): string {
+  const id = outlineModel(request, Array.from(map));
+  return '$Q' + id.toString(16);
+}
+
+function serializeSet(request: Request, set: Set<ReactClientValue>): string {
+  const id = outlineModel(request, Array.from(set));
+  return '$W' + id.toString(16);
+}
+
+function serializeTypedArray(
+  request: Request,
+  tag: string,
+  typedArray: $ArrayBufferView,
+): string {
+  request.pendingChunks += 2;
+  const bufferId = request.nextChunkId++;
+  // TODO: Convert to little endian if that's not the server default.
+  const binaryChunk = typedArrayToBinaryChunk(typedArray);
+  const headerChunk = processBufferHeader(
+    request,
+    tag,
+    bufferId,
+    byteLengthOfBinaryChunk(binaryChunk),
+  );
+  request.completedRegularChunks.push(headerChunk, binaryChunk);
+  return serializeByValueID(bufferId);
 }
 
 function escapeStringValue(value: string): string {
@@ -661,7 +788,7 @@ function escapeStringValue(value: string): string {
 let insideContextProps = null;
 let isInsideContextValue = false;
 
-export function resolveModelToJSON(
+function resolveModelToJSON(
   request: Request,
   parent:
     | {+[key: string | number]: ReactClientValue}
@@ -669,10 +796,15 @@ export function resolveModelToJSON(
   key: string,
   value: ReactClientValue,
 ): ReactJSONValue {
+  // Make sure that `parent[key]` wasn't JSONified before `value` was passed to us
   if (__DEV__) {
     // $FlowFixMe[incompatible-use]
     const originalValue = parent[key];
-    if (typeof originalValue === 'object' && originalValue !== value) {
+    if (
+      typeof originalValue === 'object' &&
+      originalValue !== value &&
+      !(originalValue instanceof Date)
+    ) {
       if (objectName(originalValue) !== 'Object') {
         const jsxParentType = jsxChildrenParents.get(parent);
         if (typeof jsxParentType === 'string') {
@@ -832,6 +964,68 @@ export function resolveModelToJSON(
       }
       return (undefined: any);
     }
+
+    if (value instanceof Map) {
+      return serializeMap(request, value);
+    }
+    if (value instanceof Set) {
+      return serializeSet(request, value);
+    }
+
+    if (enableBinaryFlight) {
+      if (value instanceof ArrayBuffer) {
+        return serializeTypedArray(request, 'A', new Uint8Array(value));
+      }
+      if (value instanceof Int8Array) {
+        // char
+        return serializeTypedArray(request, 'C', value);
+      }
+      if (value instanceof Uint8Array) {
+        // unsigned char
+        return serializeTypedArray(request, 'c', value);
+      }
+      if (value instanceof Uint8ClampedArray) {
+        // unsigned clamped char
+        return serializeTypedArray(request, 'U', value);
+      }
+      if (value instanceof Int16Array) {
+        // sort
+        return serializeTypedArray(request, 'S', value);
+      }
+      if (value instanceof Uint16Array) {
+        // unsigned short
+        return serializeTypedArray(request, 's', value);
+      }
+      if (value instanceof Int32Array) {
+        // long
+        return serializeTypedArray(request, 'L', value);
+      }
+      if (value instanceof Uint32Array) {
+        // unsigned long
+        return serializeTypedArray(request, 'l', value);
+      }
+      if (value instanceof Float32Array) {
+        // float
+        return serializeTypedArray(request, 'F', value);
+      }
+      if (value instanceof Float64Array) {
+        // double
+        return serializeTypedArray(request, 'D', value);
+      }
+      if (value instanceof BigInt64Array) {
+        // number
+        return serializeTypedArray(request, 'N', value);
+      }
+      if (value instanceof BigUint64Array) {
+        // unsigned number
+        // We use "m" instead of "n" since JSON can start with "null"
+        return serializeTypedArray(request, 'm', value);
+      }
+      if (value instanceof DataView) {
+        return serializeTypedArray(request, 'V', value);
+      }
+    }
+
     if (!isArray(value)) {
       const iteratorFn = getIteratorFn(value);
       if (iteratorFn) {
@@ -874,11 +1068,30 @@ export function resolveModelToJSON(
   }
 
   if (typeof value === 'string') {
+    // TODO: Maybe too clever. If we support URL there's no similar trick.
+    if (value[value.length - 1] === 'Z') {
+      // Possibly a Date, whose toJSON automatically calls toISOString
+      // $FlowFixMe[incompatible-use]
+      const originalValue = parent[key];
+      if (originalValue instanceof Date) {
+        return serializeDateFromDateJSON(value);
+      }
+    }
+    if (value.length >= 1024) {
+      // For large strings, we encode them outside the JSON payload so that we
+      // don't have to double encode and double parse the strings. This can also
+      // be more compact in case the string has a lot of escaped characters.
+      return serializeLargeTextString(request, value);
+    }
     return escapeStringValue(value);
   }
 
-  if (typeof value === 'boolean' || typeof value === 'number') {
+  if (typeof value === 'boolean') {
     return value;
+  }
+
+  if (typeof value === 'number') {
+    return serializeNumber(value);
   }
 
   if (typeof value === 'undefined') {
@@ -1038,6 +1251,16 @@ function emitImportChunk(
   request.completedImportChunks.push(processedChunk);
 }
 
+function emitHintChunk(request: Request, code: string, model: HintModel): void {
+  const processedChunk = processHintChunk(
+    request,
+    request.nextChunkId++,
+    code,
+    model,
+  );
+  request.completedHintChunks.push(processedChunk);
+}
+
 function emitSymbolChunk(request: Request, id: number, name: string): void {
   const symbolReference = serializeSymbolReference(name);
   const processedChunk = processReferenceChunk(request, id, symbolReference);
@@ -1051,7 +1274,7 @@ function emitProviderChunk(
 ): void {
   const contextReference = serializeProviderReference(contextName);
   const processedChunk = processReferenceChunk(request, id, contextReference);
-  request.completedJSONChunks.push(processedChunk);
+  request.completedRegularChunks.push(processedChunk);
 }
 
 function retryTask(request: Request, task: Task): void {
@@ -1115,7 +1338,7 @@ function retryTask(request: Request, task: Task): void {
     }
 
     const processedChunk = processModelChunk(request, task.id, value);
-    request.completedJSONChunks.push(processedChunk);
+    request.completedRegularChunks.push(processedChunk);
     request.abortableTasks.delete(task);
     task.status = COMPLETED;
   } catch (thrownValue) {
@@ -1151,9 +1374,9 @@ function retryTask(request: Request, task: Task): void {
 
 function performWork(request: Request): void {
   const prevDispatcher = ReactCurrentDispatcher.current;
-  const prevCache = getCurrentCache();
   ReactCurrentDispatcher.current = HooksDispatcher;
-  setCurrentCache(request.cache);
+  const prevRequest = currentRequest;
+  currentRequest = request;
   prepareToUseHooksForRequest(request);
 
   try {
@@ -1171,8 +1394,8 @@ function performWork(request: Request): void {
     fatalError(request, error);
   } finally {
     ReactCurrentDispatcher.current = prevDispatcher;
-    setCurrentCache(prevCache);
     resetHooksForRequest();
+    currentRequest = prevRequest;
   }
 }
 
@@ -1206,12 +1429,12 @@ function flushCompletedChunks(
       }
     }
     importsChunks.splice(0, i);
-    // Next comes model data.
-    const jsonChunks = request.completedJSONChunks;
+
+    // Next comes hints.
+    const hintChunks = request.completedHintChunks;
     i = 0;
-    for (; i < jsonChunks.length; i++) {
-      request.pendingChunks--;
-      const chunk = jsonChunks[i];
+    for (; i < hintChunks.length; i++) {
+      const chunk = hintChunks[i];
       const keepWriting: boolean = writeChunkAndReturn(destination, chunk);
       if (!keepWriting) {
         request.destination = null;
@@ -1219,7 +1442,23 @@ function flushCompletedChunks(
         break;
       }
     }
-    jsonChunks.splice(0, i);
+    hintChunks.splice(0, i);
+
+    // Next comes model data.
+    const regularChunks = request.completedRegularChunks;
+    i = 0;
+    for (; i < regularChunks.length; i++) {
+      request.pendingChunks--;
+      const chunk = regularChunks[i];
+      const keepWriting: boolean = writeChunkAndReturn(destination, chunk);
+      if (!keepWriting) {
+        request.destination = null;
+        i++;
+        break;
+      }
+    }
+    regularChunks.splice(0, i);
+
     // Finally, errors are sent. The idea is that it's ok to delay
     // any error messages and prioritize display of other parts of
     // the page.
@@ -1237,6 +1476,7 @@ function flushCompletedChunks(
     }
     errorChunks.splice(0, i);
   } finally {
+    request.flushScheduled = false;
     completeWriting(destination);
   }
   flushBuffered(destination);
@@ -1247,10 +1487,26 @@ function flushCompletedChunks(
 }
 
 export function startWork(request: Request): void {
+  request.flushScheduled = request.destination !== null;
   if (supportsRequestStorage) {
-    scheduleWork(() => requestStorage.run(request.cache, performWork, request));
+    scheduleWork(() => requestStorage.run(request, performWork, request));
   } else {
     scheduleWork(() => performWork(request));
+  }
+}
+
+function enqueueFlush(request: Request): void {
+  if (
+    request.flushScheduled === false &&
+    // If there are pinged tasks we are going to flush anyway after work completes
+    request.pingedTasks.length === 0 &&
+    // If there is no destination there is nothing we can flush to. A flush will
+    // happen when we start flowing again
+    request.destination !== null
+  ) {
+    const destination = request.destination;
+    request.flushScheduled = true;
+    scheduleWork(() => flushCompletedChunks(request, destination));
   }
 }
 
@@ -1325,4 +1581,108 @@ function importServerContexts(
     return importedContext;
   }
   return rootContextSnapshot;
+}
+
+function serializeRowHeader(tag: string, id: number) {
+  return id.toString(16) + ':' + tag;
+}
+
+function processErrorChunkProd(
+  request: Request,
+  id: number,
+  digest: string,
+): Chunk {
+  if (__DEV__) {
+    // These errors should never make it into a build so we don't need to encode them in codes.json
+    // eslint-disable-next-line react-internal/prod-error-codes
+    throw new Error(
+      'processErrorChunkProd should never be called while in development mode. Use processErrorChunkDev instead. This is a bug in React.',
+    );
+  }
+
+  const errorInfo: any = {digest};
+  const row = serializeRowHeader('E', id) + stringify(errorInfo) + '\n';
+  return stringToChunk(row);
+}
+
+function processErrorChunkDev(
+  request: Request,
+  id: number,
+  digest: string,
+  message: string,
+  stack: string,
+): Chunk {
+  if (!__DEV__) {
+    // These errors should never make it into a build so we don't need to encode them in codes.json
+    // eslint-disable-next-line react-internal/prod-error-codes
+    throw new Error(
+      'processErrorChunkDev should never be called while in production mode. Use processErrorChunkProd instead. This is a bug in React.',
+    );
+  }
+
+  const errorInfo: any = {digest, message, stack};
+  const row = serializeRowHeader('E', id) + stringify(errorInfo) + '\n';
+  return stringToChunk(row);
+}
+
+function processModelChunk(
+  request: Request,
+  id: number,
+  model: ReactClientValue,
+): Chunk {
+  // $FlowFixMe[incompatible-type] stringify can return null
+  const json: string = stringify(model, request.toJSON);
+  const row = id.toString(16) + ':' + json + '\n';
+  return stringToChunk(row);
+}
+
+function processReferenceChunk(
+  request: Request,
+  id: number,
+  reference: string,
+): Chunk {
+  const json = stringify(reference);
+  const row = id.toString(16) + ':' + json + '\n';
+  return stringToChunk(row);
+}
+
+function processImportChunk(
+  request: Request,
+  id: number,
+  clientReferenceMetadata: ReactClientValue,
+): Chunk {
+  // $FlowFixMe[incompatible-type] stringify can return null
+  const json: string = stringify(clientReferenceMetadata);
+  const row = serializeRowHeader('I', id) + json + '\n';
+  return stringToChunk(row);
+}
+
+function processHintChunk(
+  request: Request,
+  id: number,
+  code: string,
+  model: JSONValue,
+): Chunk {
+  const json: string = stringify(model);
+  const row = serializeRowHeader('H' + code, id) + json + '\n';
+  return stringToChunk(row);
+}
+
+function processTextHeader(
+  request: Request,
+  id: number,
+  binaryLength: number,
+): Chunk {
+  const row = id.toString(16) + ':T' + binaryLength.toString(16) + ',';
+  return stringToChunk(row);
+}
+
+function processBufferHeader(
+  request: Request,
+  tag: string,
+  id: number,
+  binaryLength: number,
+): Chunk {
+  const row = id.toString(16) + ':' + tag + binaryLength.toString(16) + ',';
+  return stringToChunk(row);
 }

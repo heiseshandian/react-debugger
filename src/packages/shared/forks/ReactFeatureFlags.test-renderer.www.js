@@ -23,6 +23,8 @@ export const enableCache = true;
 export const enableLegacyCache = true;
 export const enableCacheElement = true;
 export const enableFetchInstrumentation = false;
+export const enableFormActions = true; // Doesn't affect Test Renderer
+export const enableBinaryFlight = true;
 export const enableSchedulerDebugging = false;
 export const disableJavaScriptURLs = false;
 export const disableCommentsAsDOMContainers = true;
@@ -32,14 +34,12 @@ export const enableScopeAPI = true;
 export const enableCreateEventHandleAPI = false;
 export const enableSuspenseCallback = true;
 export const disableLegacyContext = false;
-export const revertRemovalOfSiblingPrerendering = false;
 export const enableTrustedTypesIntegration = false;
 export const disableTextareaChildren = false;
 export const disableModulePatternComponents = true;
 export const enableSuspenseAvoidThisFallback = true;
 export const enableSuspenseAvoidThisFallbackFizz = false;
 export const enableCPUSuspense = false;
-export const enableUseHook = true;
 export const enableUseMemoCacheHook = false;
 export const enableUseEffectEventHook = false;
 export const enableClientRenderFallbackOnTextMismatch = true;
@@ -54,6 +54,7 @@ export const enableUseRefAccessWarning = false;
 export const disableSchedulerTimeoutInWorkLoop = false;
 export const enableLazyContextPropagation = false;
 export const enableLegacyHidden = false;
+export const forceConcurrentByDefaultForTesting = false;
 export const enableUnifiedSyncLane = false;
 export const allowConcurrentByDefault = true;
 export const enableCustomElementPropertySupport = false;
@@ -61,17 +62,20 @@ export const enableCustomElementPropertySupport = false;
 export const consoleManagedByDevToolsDuringStrictMode = false;
 export const enableServerContext = true;
 
-// Some www surfaces are still using this. Remove once they have been migrated.
-export const enableUseMutableSource = true;
-
 export const enableTransitionTracing = false;
 
 export const enableFloat = true;
 export const enableHostSingletons = true;
 
 export const useModernStrictMode = false;
+export const enableDO_NOT_USE_disableStrictPassiveEffect = false;
 export const enableFizzExternalRuntime = false;
 export const enableDeferRootSchedulingToMicrotask = true;
+
+export const diffInCommitPhase = true;
+export const enableAsyncActions = false;
+
+export const alwaysThrottleRetries = true;
 
 // Flow magic to verify the exports of this file match the original version.
 ((((null: any): ExportsType): FeatureFlagsType): ExportsType);

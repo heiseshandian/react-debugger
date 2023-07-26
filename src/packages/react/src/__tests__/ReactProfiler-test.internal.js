@@ -256,14 +256,13 @@ describe(`onRender`, () => {
       </div>,
     );
 
+    // Restore original mock
+    jest.mock('scheduler', () => jest.requireActual('scheduler/unstable_mock'));
+
     // TODO: unstable_now is called by more places than just the profiler.
     // Rewrite this test so it's less fragile.
     if (gate(flags => flags.enableDeferRootSchedulingToMicrotask)) {
-      assertLog([
-        'read current time',
-        'read current time',
-        'read current time',
-      ]);
+      assertLog(['read current time', 'read current time']);
     } else {
       assertLog([
         'read current time',
@@ -271,12 +270,8 @@ describe(`onRender`, () => {
         'read current time',
         'read current time',
         'read current time',
-        'read current time',
       ]);
     }
-
-    // Restore original mock
-    jest.mock('scheduler', () => jest.requireActual('scheduler/unstable_mock'));
   });
 
   it('does not report work done on a sibling', async () => {
@@ -760,6 +755,7 @@ describe(`onRender`, () => {
           {unstable_isConcurrent: true},
         );
       });
+
       await waitFor(['Yield:2']);
       expect(callback).toHaveBeenCalledTimes(0);
 
@@ -800,6 +796,7 @@ describe(`onRender`, () => {
           {unstable_isConcurrent: true},
         );
       });
+
       await waitFor(['Yield:5']);
       expect(callback).toHaveBeenCalledTimes(0);
 
@@ -850,6 +847,7 @@ describe(`onRender`, () => {
           {unstable_isConcurrent: true},
         );
       });
+
       await waitFor(['Yield:10']);
       expect(callback).toHaveBeenCalledTimes(0);
 
@@ -927,6 +925,7 @@ describe(`onRender`, () => {
           </React.Profiler>,
         );
       });
+
       await waitFor(['Yield:3']);
       expect(callback).toHaveBeenCalledTimes(0);
 
@@ -1031,6 +1030,7 @@ describe(`onRender`, () => {
       React.startTransition(() => {
         first.setState({renderTime: 10});
       });
+
       await waitFor(['FirstComponent:10']);
       expect(callback).toHaveBeenCalledTimes(0);
 

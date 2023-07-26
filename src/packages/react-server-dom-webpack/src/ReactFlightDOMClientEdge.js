@@ -9,9 +9,9 @@
 
 import type {Thenable} from 'shared/ReactTypes.js';
 
-import type {Response as FlightResponse} from 'react-client/src/ReactFlightClientStream';
+import type {Response as FlightResponse} from 'react-client/src/ReactFlightClient';
 
-import type {SSRManifest} from './ReactFlightClientWebpackBundlerConfig';
+import type {SSRManifest} from './ReactFlightClientConfigWebpackBundler';
 
 import {
   createResponse,
@@ -19,7 +19,9 @@ import {
   reportGlobalError,
   processBinaryChunk,
   close,
-} from 'react-client/src/ReactFlightClientStream';
+} from 'react-client/src/ReactFlightClient';
+
+import {createServerReference as createServerReferenceImpl} from 'react-client/src/ReactFlightReplyClient';
 
 function noServerCall() {
   throw new Error(
@@ -27,6 +29,13 @@ function noServerCall() {
       'This would create a fetch waterfall. Try to use a Server Component ' +
       'to pass data to Client Components instead.',
   );
+}
+
+export function createServerReference<A: Iterable<any>, T>(
+  id: any,
+  callServer: any,
+): (...A) => Promise<T> {
+  return createServerReferenceImpl(id, noServerCall);
 }
 
 export type Options = {

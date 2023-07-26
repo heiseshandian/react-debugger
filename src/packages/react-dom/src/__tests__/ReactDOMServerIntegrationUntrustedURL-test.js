@@ -108,12 +108,15 @@ describe('ReactDOMServerIntegration - Untrusted URLs', () => {
     expect(e.action).toBe('javascript:notfine');
   });
 
-  itRenders('a javascript protocol button formAction', async render => {
-    const e = await render(<input formAction="javascript:notfine" />, 1);
+  itRenders('a javascript protocol input formAction', async render => {
+    const e = await render(
+      <input type="submit" formAction="javascript:notfine" />,
+      1,
+    );
     expect(e.getAttribute('formAction')).toBe('javascript:notfine');
   });
 
-  itRenders('a javascript protocol input formAction', async render => {
+  itRenders('a javascript protocol button formAction', async render => {
     const e = await render(
       <button formAction="javascript:notfine">p0wned</button>,
       1,
@@ -268,12 +271,14 @@ describe('ReactDOMServerIntegration - Untrusted URLs - disableJavaScriptURLs', (
     expect(e.action).toBe(EXPECTED_SAFE_URL);
   });
 
-  itRenders('a javascript protocol button formAction', async render => {
-    const e = await render(<input formAction="javascript:notfine" />);
+  itRenders('a javascript protocol input formAction', async render => {
+    const e = await render(
+      <input type="submit" formAction="javascript:notfine" />,
+    );
     expect(e.getAttribute('formAction')).toBe(EXPECTED_SAFE_URL);
   });
 
-  itRenders('a javascript protocol input formAction', async render => {
+  itRenders('a javascript protocol button formAction', async render => {
     const e = await render(
       <button formAction="javascript:notfine">p0wned</button>,
     );
@@ -339,7 +344,7 @@ describe('ReactDOMServerIntegration - Untrusted URLs - disableJavaScriptURLs', (
       // The hydration validation calls it one extra time.
       // TODO: It would be good if we only called toString once for
       // consistency but the code structure makes that hard right now.
-      expectedToStringCalls = 5;
+      expectedToStringCalls = 4;
     } else if (__DEV__) {
       // Checking for string coercion problems results in double the
       // toString calls in DEV

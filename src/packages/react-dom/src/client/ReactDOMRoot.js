@@ -7,15 +7,13 @@
  * @flow
  */
 
-import type {MutableSource, ReactNodeList} from 'shared/ReactTypes';
+import type {ReactNodeList} from 'shared/ReactTypes';
 import type {
   FiberRoot,
   TransitionTracingCallbacks,
 } from 'react-reconciler/src/ReactInternalTypes';
 
-import ReactDOMSharedInternals from '../ReactDOMSharedInternals';
-const {Dispatcher} = ReactDOMSharedInternals;
-import {ReactDOMClientDispatcher} from 'react-dom-bindings/src/client/ReactDOMHostConfig';
+import {ReactDOMClientDispatcher} from 'react-dom-bindings/src/client/ReactFiberConfigDOM';
 import {queueExplicitHydrationTarget} from 'react-dom-bindings/src/events/ReactDOMEventReplaying';
 import {REACT_ELEMENT_TYPE} from 'shared/ReactSymbols';
 import {
@@ -25,13 +23,19 @@ import {
   disableCommentsAsDOMContainers,
 } from 'shared/ReactFeatureFlags';
 
+import ReactDOMSharedInternals from '../ReactDOMSharedInternals';
+const {Dispatcher} = ReactDOMSharedInternals;
+if (enableFloat && typeof document !== 'undefined') {
+  // Set the default dispatcher to the client dispatcher
+  Dispatcher.current = ReactDOMClientDispatcher;
+}
+
 export type RootType = {
   render(children: ReactNodeList): void,
   unmount(): void,
   _internalRoot: FiberRoot | null,
   ...
 };
-
 export type CreateRootOptions = {
   unstable_strictMode?: boolean,
   unstable_concurrentUpdatesByDefault?: boolean,
@@ -43,7 +47,6 @@ export type CreateRootOptions = {
 
 export type HydrateRootOptions = {
   // Hydration options
-  hydratedSources?: Array<MutableSource<any>>,
   onHydrated?: (suspenseNode: Comment) => void,
   onDeleted?: (suspenseNode: Comment) => void,
   // Options for all roots
@@ -73,7 +76,6 @@ import {
   createHydrationContainer,
   updateContainer,
   findHostInstanceWithNoPortals,
-  registerMutableSourceForHydration,
   flushSync,
   isAlreadyRendering,
 } from 'react-reconciler/src/ReactFiberReconciler';
@@ -247,11 +249,8 @@ export function createRoot(
     transitionCallbacks,
   );
   markContainerAsRoot(root.current, container);
+  Dispatcher.current = ReactDOMClientDispatcher;
 
-  if (enableFloat) {
-    // Set the default dispatcher to the client dispatcher
-    Dispatcher.current = ReactDOMClientDispatcher;
-  }
   const rootContainerElement: Document | Element | DocumentFragment =
     container.nodeType === COMMENT_NODE
       ? (container.parentNode: any)
@@ -297,8 +296,6 @@ export function hydrateRoot(
   // For now we reuse the whole bag of options since they contain
   // the hydration callbacks.
   const hydrationCallbacks = options != null ? options : null;
-  // TODO: Delete this option
-  const mutableSources = (options != null && options.hydratedSources) || null;
 
   let isStrictMode = false;
   let concurrentUpdatesByDefaultOverride = false;
@@ -339,19 +336,9 @@ export function hydrateRoot(
     transitionCallbacks,
   );
   markContainerAsRoot(root.current, container);
-  if (enableFloat) {
-    // Set the default dispatcher to the client dispatcher
-    Dispatcher.current = ReactDOMClientDispatcher;
-  }
+  Dispatcher.current = ReactDOMClientDispatcher;
   // This can't be a comment node since hydration doesn't work on comment nodes anyway.
   listenToAllSupportedEvents(container);
-
-  if (mutableSources) {
-    for (let i = 0; i < mutableSources.length; i++) {
-      const mutableSource = mutableSources[i];
-      registerMutableSourceForHydration(root, mutableSource);
-    }
-  }
 
   // $FlowFixMe[invalid-constructor] Flow no longer supports calling new on functions
   return new ReactDOMHydrationRoot(root);

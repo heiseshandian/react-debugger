@@ -1,7 +1,7 @@
 'use strict';
 
 const {resolve} = require('path');
-const {DefinePlugin} = require('webpack');
+const Webpack = require('webpack');
 const {
   DARK_MODE_DIMMED_WARNING_COLOR,
   DARK_MODE_DIMMED_ERROR_COLOR,
@@ -51,10 +51,12 @@ module.exports = {
   devtool: __DEV__ ? 'cheap-module-source-map' : false,
   entry: {
     background: './src/background.js',
+    backendManager: './src/backendManager.js',
     main: './src/main.js',
     panel: './src/panel.js',
     proxy: './src/contentScripts/proxy.js',
     prepareInjection: './src/contentScripts/prepareInjection.js',
+    renderer: './src/contentScripts/renderer.js',
     installHook: './src/contentScripts/installHook.js',
   },
   output: {
@@ -64,12 +66,7 @@ module.exports = {
     chunkFilename: '[name].chunk.js',
   },
   node: {
-    // Don't define a polyfill on window.setImmediate
-    setImmediate: false,
-
-    // source-maps package has a dependency on 'fs'
-    // but this build won't trigger that code path
-    fs: 'empty',
+    global: false,
   },
   resolve: {
     alias: {
@@ -86,7 +83,11 @@ module.exports = {
     minimize: false,
   },
   plugins: [
-    new DefinePlugin({
+    new Webpack.ProvidePlugin({
+      process: 'process/browser',
+      Buffer: ['buffer', 'Buffer'],
+    }),
+    new Webpack.DefinePlugin({
       __DEV__,
       __EXPERIMENTAL__: true,
       __EXTENSION__: true,

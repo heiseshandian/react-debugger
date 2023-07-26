@@ -67,7 +67,7 @@ describe('ReactHooksWithNoopRenderer', () => {
     ContinuousEventPriority =
       require('react-reconciler/constants').ContinuousEventPriority;
     if (gate(flags => flags.enableSuspenseList)) {
-      SuspenseList = React.SuspenseList;
+      SuspenseList = React.unstable_SuspenseList;
     }
 
     const InternalTestUtils = require('internal-test-utils');
@@ -1585,21 +1585,39 @@ describe('ReactHooksWithNoopRenderer', () => {
         expect(ReactNoop).toMatchRenderedOutput(<span prop="Count: (empty)" />);
 
         // Rendering again should flush the previous commit's effects
-        React.startTransition(() => {
+        if (gate(flags => flags.forceConcurrentByDefaultForTesting)) {
           ReactNoop.render(<Counter count={1} />, () =>
             Scheduler.log('Sync effect'),
           );
-        });
+        } else {
+          React.startTransition(() => {
+            ReactNoop.render(<Counter count={1} />, () =>
+              Scheduler.log('Sync effect'),
+            );
+          });
+        }
 
         await waitFor(['Schedule update [0]', 'Count: 0']);
 
-        expect(ReactNoop).toMatchRenderedOutput(<span prop="Count: 0" />);
-        await waitFor([
-          'Count: 0',
-          'Sync effect',
-          'Schedule update [1]',
-          'Count: 1',
-        ]);
+        if (gate(flags => flags.forceConcurrentByDefaultForTesting)) {
+          expect(ReactNoop).toMatchRenderedOutput(
+            <span prop="Count: (empty)" />,
+          );
+          await waitFor(['Sync effect']);
+          expect(ReactNoop).toMatchRenderedOutput(<span prop="Count: 0" />);
+
+          ReactNoop.flushPassiveEffects();
+          assertLog(['Schedule update [1]']);
+          await waitForAll(['Count: 1']);
+        } else {
+          expect(ReactNoop).toMatchRenderedOutput(<span prop="Count: 0" />);
+          await waitFor([
+            'Count: 0',
+            'Sync effect',
+            'Schedule update [1]',
+            'Count: 1',
+          ]);
+        }
 
         expect(ReactNoop).toMatchRenderedOutput(<span prop="Count: 1" />);
       });
@@ -3592,9 +3610,8 @@ describe('ReactHooksWithNoopRenderer', () => {
         </>,
       );
 
-      await resolveText('A');
-      assertLog(['Promise resolved [A]']);
-      await waitForAll(['A']);
+      await act(() => resolveText('A'));
+      assertLog(['Promise resolved [A]', 'A']);
       expect(ReactNoop).toMatchRenderedOutput(
         <>
           <span prop="A" />

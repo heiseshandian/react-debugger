@@ -11,7 +11,7 @@ import type {ReactNodeList} from 'shared/ReactTypes';
 import type {
   Container,
   PublicInstance,
-} from 'react-dom-bindings/src/client/ReactDOMHostConfig';
+} from 'react-dom-bindings/src/client/ReactFiberConfigDOM';
 import type {
   RootType,
   HydrateRootOptions,
@@ -55,7 +55,13 @@ import {
 } from 'react-dom-bindings/src/events/ReactDOMControlledComponent';
 import Internals from '../ReactDOMSharedInternals';
 
-export {prefetchDNS, preconnect, preload, preinit} from '../ReactDOMFloat';
+export {
+  prefetchDNS,
+  preconnect,
+  preload,
+  preinit,
+} from '../shared/ReactDOMFloat';
+export {useFormStatus} from 'react-dom-bindings/src/shared/ReactDOMFormActions';
 
 if (__DEV__) {
   if (

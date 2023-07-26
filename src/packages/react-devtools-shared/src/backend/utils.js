@@ -8,17 +8,25 @@
  * @flow
  */
 
-import {copy} from 'clipboard-js';
 import {compareVersions} from 'compare-versions';
 import {dehydrate} from '../hydration';
 import isArray from 'shared/isArray';
 
 import type {DehydratedData} from 'react-devtools-shared/src/devtools/views/Components/types';
 
+// TODO: update this to the first React version that has a corresponding DevTools backend
+const FIRST_DEVTOOLS_BACKEND_LOCKSTEP_VER = '999.9.9';
+export function hasAssignedBackend(version?: string): boolean {
+  if (version == null || version === '') {
+    return false;
+  }
+  return gte(version, FIRST_DEVTOOLS_BACKEND_LOCKSTEP_VER);
+}
+
 export function cleanForBridge(
   data: Object | null,
   isPathAllowed: (path: Array<string | number>) => boolean,
-  path?: Array<string | number> = [],
+  path: Array<string | number> = [],
 ): DehydratedData | null {
   if (data !== null) {
     const cleanedPaths: Array<Array<string | number>> = [];
@@ -38,23 +46,6 @@ export function cleanForBridge(
     };
   } else {
     return null;
-  }
-}
-
-export function copyToClipboard(value: any): void {
-  const safeToCopy = serializeToString(value);
-  const text = safeToCopy === undefined ? 'undefined' : safeToCopy;
-  const {clipboardCopyText} = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
-
-  // On Firefox navigator.clipboard.writeText has to be called from
-  // the content script js code (because it requires the clipboardWrite
-  // permission to be allowed out of a "user handling" callback),
-  // clipboardCopyText is an helper injected into the page from.
-  // injectGlobalHook.
-  if (typeof clipboardCopyText === 'function') {
-    clipboardCopyText(text).catch(err => {});
-  } else {
-    copy(text);
   }
 }
 
@@ -144,20 +135,28 @@ export function getEffectDurations(root: Object): {
 }
 
 export function serializeToString(data: any): string {
+  if (data === undefined) {
+    return 'undefined';
+  }
+
   const cache = new Set<mixed>();
   // Use a custom replacer function to protect against circular references.
-  return JSON.stringify(data, (key, value) => {
-    if (typeof value === 'object' && value !== null) {
-      if (cache.has(value)) {
-        return;
+  return JSON.stringify(
+    data,
+    (key, value) => {
+      if (typeof value === 'object' && value !== null) {
+        if (cache.has(value)) {
+          return;
+        }
+        cache.add(value);
       }
-      cache.add(value);
-    }
-    if (typeof value === 'bigint') {
-      return value.toString() + 'n';
-    }
-    return value;
-  });
+      if (typeof value === 'bigint') {
+        return value.toString() + 'n';
+      }
+      return value;
+    },
+    2,
+  );
 }
 
 // Formats an array of args with a style for console methods, using

@@ -33,7 +33,6 @@ describe('react-dom-server-rendering-stub', () => {
     expect(ReactDOM.hydrate).toBe(undefined);
     expect(ReactDOM.render).toBe(undefined);
     expect(ReactDOM.unmountComponentAtNode).toBe(undefined);
-    expect(ReactDOM.unstable_batchedUpdates).toBe(undefined);
     expect(ReactDOM.unstable_createEventHandle).toBe(undefined);
     expect(ReactDOM.unstable_renderSubtreeIntoContainer).toBe(undefined);
     expect(ReactDOM.unstable_runWithPriority).toBe(undefined);
@@ -80,5 +79,17 @@ describe('react-dom-server-rendering-stub', () => {
       'flushSync was called on the server. This is likely caused by a function being called during render or in module scope that was intended to be called from an effect or event handler. Update your to not call flushSync no the server.',
     );
     expect(x).toBe(false);
+  });
+
+  // @gate enableFormActions
+  // @gate enableAsyncActions
+  it('exports experimental_useFormStatus', async () => {
+    function App() {
+      const {pending} = ReactDOM.experimental_useFormStatus();
+      return 'Pending: ' + pending;
+    }
+
+    const result = await ReactDOMFizzServer.renderToStaticMarkup(<App />);
+    expect(result).toEqual('Pending: false');
   });
 });

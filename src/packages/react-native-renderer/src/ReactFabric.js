@@ -40,7 +40,7 @@ import {
   sendAccessibilityEvent,
   getNodeFromInternalInstanceHandle,
 } from './ReactNativePublicCompat';
-import {getPublicInstanceFromInternalInstanceHandle} from './ReactFabricHostConfig';
+import {getPublicInstanceFromInternalInstanceHandle} from './ReactFiberConfigFabric';
 
 // $FlowFixMe[missing-local-annot]
 function onRecoverableError(error) {
@@ -137,6 +137,7 @@ injectIntoDevTools({
   version: ReactVersion,
   rendererPackageName: 'react-native-renderer',
   rendererConfig: {
+    getInspectorDataForInstance,
     getInspectorDataForViewTag: getInspectorDataForViewTag,
     getInspectorDataForViewAtPoint: getInspectorDataForViewAtPoint.bind(
       null,

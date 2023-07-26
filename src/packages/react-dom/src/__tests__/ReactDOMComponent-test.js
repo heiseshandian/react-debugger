@@ -512,25 +512,17 @@ describe('ReactDOMComponent', () => {
         expect(node.hasAttribute('href')).toBe(false);
       });
 
-      it('should not add an empty action attribute', () => {
+      it('should allow an empty action attribute', () => {
         const container = document.createElement('div');
-        expect(() => ReactDOM.render(<form action="" />, container)).toErrorDev(
-          'An empty string ("") was passed to the action attribute. ' +
-            'To fix this, either do not render the element at all ' +
-            'or pass null to action instead of an empty string.',
-        );
+        ReactDOM.render(<form action="" />, container);
         const node = container.firstChild;
-        expect(node.hasAttribute('action')).toBe(false);
+        expect(node.getAttribute('action')).toBe('');
 
         ReactDOM.render(<form action="abc" />, container);
         expect(node.hasAttribute('action')).toBe(true);
 
-        expect(() => ReactDOM.render(<form action="" />, container)).toErrorDev(
-          'An empty string ("") was passed to the action attribute. ' +
-            'To fix this, either do not render the element at all ' +
-            'or pass null to action instead of an empty string.',
-        );
-        expect(node.hasAttribute('action')).toBe(false);
+        ReactDOM.render(<form action="" />, container);
+        expect(node.getAttribute('action')).toBe('');
       });
 
       it('allows empty string of a formAction to override the default of a parent', () => {
@@ -1043,6 +1035,63 @@ describe('ReactDOMComponent', () => {
       expect(nodeValueSetter).toHaveBeenCalledTimes(2);
     });
 
+    it('should not incur unnecessary DOM mutations for controlled string properties', () => {
+      function onChange() {}
+      const container = document.createElement('div');
+      ReactDOM.render(<input value="" onChange={onChange} />, container);
+
+      const node = container.firstChild;
+
+      let nodeValue = '';
+      const nodeValueSetter = jest.fn();
+      Object.defineProperty(node, 'value', {
+        get: function () {
+          return nodeValue;
+        },
+        set: nodeValueSetter.mockImplementation(function (newValue) {
+          nodeValue = newValue;
+        }),
+      });
+
+      ReactDOM.render(<input value="foo" onChange={onChange} />, container);
+      expect(nodeValueSetter).toHaveBeenCalledTimes(1);
+
+      ReactDOM.render(
+        <input value="foo" data-unrelated={true} onChange={onChange} />,
+        container,
+      );
+      expect(nodeValueSetter).toHaveBeenCalledTimes(1);
+
+      expect(() => {
+        ReactDOM.render(<input onChange={onChange} />, container);
+      }).toErrorDev(
+        'A component is changing a controlled input to be uncontrolled. This is likely caused by ' +
+          'the value changing from a defined to undefined, which should not happen. Decide between ' +
+          'using a controlled or uncontrolled input element for the lifetime of the component.',
+      );
+      expect(nodeValueSetter).toHaveBeenCalledTimes(1);
+
+      expect(() => {
+        ReactDOM.render(<input value={null} onChange={onChange} />, container);
+      }).toErrorDev(
+        'value` prop on `input` should not be null. Consider using an empty string to clear the ' +
+          'component or `undefined` for uncontrolled components.',
+      );
+      expect(nodeValueSetter).toHaveBeenCalledTimes(1);
+
+      expect(() => {
+        ReactDOM.render(<input value="" onChange={onChange} />, container);
+      }).toErrorDev(
+        ' A component is changing an uncontrolled input to be controlled. This is likely caused by ' +
+          'the value changing from undefined to a defined value, which should not happen. Decide between ' +
+          'using a controlled or uncontrolled input element for the lifetime of the component.',
+      );
+      expect(nodeValueSetter).toHaveBeenCalledTimes(2);
+
+      ReactDOM.render(<input onChange={onChange} />, container);
+      expect(nodeValueSetter).toHaveBeenCalledTimes(2);
+    });
+
     it('should not incur unnecessary DOM mutations for boolean properties', () => {
       const container = document.createElement('div');
       function onChange() {
@@ -1066,7 +1115,12 @@ describe('ReactDOMComponent', () => {
       });
 
       ReactDOM.render(
-        <input type="checkbox" onChange={onChange} checked={true} />,
+        <input
+          type="checkbox"
+          onChange={onChange}
+          checked={true}
+          data-unrelated={true}
+        />,
         container,
       );
       expect(nodeValueSetter).toHaveBeenCalledTimes(0);
@@ -1081,21 +1135,27 @@ describe('ReactDOMComponent', () => {
           'the value changing from a defined to undefined, which should not happen. Decide between ' +
           'using a controlled or uncontrolled input element for the lifetime of the component.',
       );
-      expect(nodeValueSetter).toHaveBeenCalledTimes(1);
+      // This leaves the current checked value in place, just like text inputs.
+      expect(nodeValueSetter).toHaveBeenCalledTimes(0);
 
-      ReactDOM.render(
-        <input type="checkbox" onChange={onChange} checked={false} />,
-        container,
+      expect(() => {
+        ReactDOM.render(
+          <input type="checkbox" onChange={onChange} checked={false} />,
+          container,
+        );
+      }).toErrorDev(
+        ' A component is changing an uncontrolled input to be controlled. This is likely caused by ' +
+          'the value changing from undefined to a defined value, which should not happen. Decide between ' +
+          'using a controlled or uncontrolled input element for the lifetime of the component.',
       );
-      // TODO: Non-null values are updated twice on inputs. This is should ideally be fixed.
-      expect(nodeValueSetter).toHaveBeenCalledTimes(3);
+
+      expect(nodeValueSetter).toHaveBeenCalledTimes(1);
 
       ReactDOM.render(
         <input type="checkbox" onChange={onChange} checked={true} />,
         container,
       );
-      // TODO: Non-null values are updated twice on inputs. This is should ideally be fixed.
-      expect(nodeValueSetter).toHaveBeenCalledTimes(5);
+      expect(nodeValueSetter).toHaveBeenCalledTimes(2);
     });
 
     it('should ignore attribute list for elements with the "is" attribute', () => {
@@ -1783,6 +1843,57 @@ describe('ReactDOMComponent', () => {
         'Warning: validateDOMNesting(...): Whitespace text nodes cannot ' +
           "appear as a child of <table>. Make sure you don't have any extra " +
           'whitespace between tags on each line of your source code.' +
+          '\n    in table (at **)' +
+          '\n    in Foo (at **)',
+      ]);
+    });
+
+    it('warns nicely for updating table rows to use text', () => {
+      const container = document.createElement('div');
+
+      function Row({children}) {
+        return <tr>{children}</tr>;
+      }
+
+      function Foo({children}) {
+        return <table>{children}</table>;
+      }
+
+      // First is fine.
+      ReactDOM.render(<Foo />, container);
+
+      expect(() => ReactDOM.render(<Foo> </Foo>, container)).toErrorDev([
+        'Warning: validateDOMNesting(...): Whitespace text nodes cannot ' +
+          "appear as a child of <table>. Make sure you don't have any extra " +
+          'whitespace between tags on each line of your source code.' +
+          '\n    in table (at **)' +
+          '\n    in Foo (at **)',
+      ]);
+
+      ReactDOM.render(
+        <Foo>
+          <tbody>
+            <Row />
+          </tbody>
+        </Foo>,
+        container,
+      );
+
+      expect(() =>
+        ReactDOM.render(
+          <Foo>
+            <tbody>
+              <Row>text</Row>
+            </tbody>
+          </Foo>,
+          container,
+        ),
+      ).toErrorDev([
+        'Warning: validateDOMNesting(...): Text nodes cannot appear as a ' +
+          'child of <tr>.' +
+          '\n    in tr (at **)' +
+          '\n    in Row (at **)' +
+          '\n    in tbody (at **)' +
           '\n    in table (at **)' +
           '\n    in Foo (at **)',
       ]);

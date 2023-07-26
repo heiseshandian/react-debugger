@@ -22,4 +22,6 @@ export {
   preconnect,
   preload,
   preinit,
+  experimental_useFormStatus,
+  unstable_batchedUpdates,
 } from './src/server/ReactDOMServerRenderingStub';

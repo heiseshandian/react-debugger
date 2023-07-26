@@ -9,13 +9,14 @@
 
 type BunReadableStreamController = ReadableStreamController & {
   end(): mixed,
-  write(data: Chunk): void,
+  write(data: Chunk | BinaryChunk): void,
   error(error: Error): void,
 };
 export type Destination = BunReadableStreamController;
 
 export type PrecomputedChunk = string;
 export opaque type Chunk = string;
+export type BinaryChunk = $ArrayBufferView;
 
 export function scheduleWork(callback: () => void) {
   callback();
@@ -26,15 +27,11 @@ export function flushBuffered(destination: Destination) {
   // transform streams. https://github.com/whatwg/streams/issues/960
 }
 
-// AsyncLocalStorage is not available in bun
-export const supportsRequestStorage = false;
-export const requestStorage = (null: any);
-
 export function beginWriting(destination: Destination) {}
 
 export function writeChunk(
   destination: Destination,
-  chunk: PrecomputedChunk | Chunk,
+  chunk: PrecomputedChunk | Chunk | BinaryChunk,
 ): void {
   if (chunk.length === 0) {
     return;
@@ -45,7 +42,7 @@ export function writeChunk(
 
 export function writeChunkAndReturn(
   destination: Destination,
-  chunk: PrecomputedChunk | Chunk,
+  chunk: PrecomputedChunk | Chunk | BinaryChunk,
 ): boolean {
   return !!destination.write(chunk);
 }
@@ -64,10 +61,25 @@ export function stringToPrecomputedChunk(content: string): PrecomputedChunk {
   return content;
 }
 
+export function typedArrayToBinaryChunk(
+  content: $ArrayBufferView,
+): BinaryChunk {
+  // TODO: Does this needs to be cloned if it's transferred in enqueue()?
+  return content;
+}
+
 export function clonePrecomputedChunk(
   chunk: PrecomputedChunk,
 ): PrecomputedChunk {
   return chunk;
+}
+
+export function byteLengthOfChunk(chunk: Chunk | PrecomputedChunk): number {
+  return Buffer.byteLength(chunk, 'utf8');
+}
+
+export function byteLengthOfBinaryChunk(chunk: BinaryChunk): number {
+  return chunk.byteLength;
 }
 
 export function closeWithError(destination: Destination, error: mixed): void {

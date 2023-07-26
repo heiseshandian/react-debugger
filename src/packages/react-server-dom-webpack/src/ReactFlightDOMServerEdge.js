@@ -9,8 +9,8 @@
 
 import type {ReactClientValue} from 'react-server/src/ReactFlightServer';
 import type {ServerContextJSONValue, Thenable} from 'shared/ReactTypes';
-import type {ClientManifest} from './ReactFlightServerWebpackBundlerConfig';
-import type {ServerManifest} from 'react-client/src/ReactFlightClientHostConfig';
+import type {ClientManifest} from './ReactFlightServerConfigWebpackBundler';
+import type {ServerManifest} from 'react-client/src/ReactFlightClientConfig';
 
 import {
   createRequest,
@@ -22,10 +22,16 @@ import {
 import {
   createResponse,
   close,
-  resolveField,
-  resolveFile,
   getRoot,
 } from 'react-server/src/ReactFlightReplyServer';
+
+import {decodeAction} from 'react-server/src/ReactFlightActionServer';
+
+export {
+  registerServerReference,
+  registerClientReference,
+  createClientModuleProxy,
+} from './ReactFlightWebpackReferences';
 
 type Options = {
   identifierPrefix?: string,
@@ -79,22 +85,14 @@ function decodeReply<T>(
   body: string | FormData,
   webpackMap: ServerManifest,
 ): Thenable<T> {
-  const response = createResponse(webpackMap);
   if (typeof body === 'string') {
-    resolveField(response, 0, body);
-  } else {
-    // $FlowFixMe[prop-missing] Flow doesn't know that forEach exists.
-    body.forEach((value: string | File, key: string) => {
-      const id = +key;
-      if (typeof value === 'string') {
-        resolveField(response, id, value);
-      } else {
-        resolveFile(response, id, value);
-      }
-    });
+    const form = new FormData();
+    form.append('0', body);
+    body = form;
   }
+  const response = createResponse(webpackMap, '', body);
   close(response);
   return getRoot(response);
 }
 
-export {renderToReadableStream, decodeReply};
+export {renderToReadableStream, decodeReply, decodeAction};

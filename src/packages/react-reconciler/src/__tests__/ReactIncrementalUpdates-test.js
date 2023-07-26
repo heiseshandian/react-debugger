@@ -156,11 +156,23 @@ describe('ReactIncrementalUpdates', () => {
     }
 
     // Schedule some async updates
-    React.startTransition(() => {
+    if (
+      gate(
+        flags =>
+          !flags.forceConcurrentByDefaultForTesting ||
+          flags.enableUnifiedSyncLane,
+      )
+    ) {
+      React.startTransition(() => {
+        instance.setState(createUpdate('a'));
+        instance.setState(createUpdate('b'));
+        instance.setState(createUpdate('c'));
+      });
+    } else {
       instance.setState(createUpdate('a'));
       instance.setState(createUpdate('b'));
       instance.setState(createUpdate('c'));
-    });
+    }
 
     // Begin the updates but don't flush them yet
     await waitFor(['a', 'b', 'c']);
@@ -177,7 +189,13 @@ describe('ReactIncrementalUpdates', () => {
     });
 
     // The sync updates should have flushed, but not the async ones.
-    if (gate(flags => flags.enableUnifiedSyncLane)) {
+    if (
+      gate(
+        flags =>
+          !flags.forceConcurrentByDefaultForTesting &&
+          flags.enableUnifiedSyncLane,
+      )
+    ) {
       assertLog(['d', 'e', 'f']);
       expect(ReactNoop).toMatchRenderedOutput(<span prop="def" />);
     } else {
@@ -189,7 +207,13 @@ describe('ReactIncrementalUpdates', () => {
     // Now flush the remaining work. Even though e and f were already processed,
     // they should be processed again, to ensure that the terminal state
     // is deterministic.
-    if (gate(flags => !flags.enableUnifiedSyncLane)) {
+    if (
+      gate(
+        flags =>
+          !flags.forceConcurrentByDefaultForTesting &&
+          !flags.enableUnifiedSyncLane,
+      )
+    ) {
       await waitForAll([
         // Since 'g' is in a transition, we'll process 'd' separately first.
         // That causes us to process 'd' with 'e' and 'f' rebased.
@@ -243,11 +267,23 @@ describe('ReactIncrementalUpdates', () => {
     }
 
     // Schedule some async updates
-    React.startTransition(() => {
+    if (
+      gate(
+        flags =>
+          !flags.forceConcurrentByDefaultForTesting ||
+          flags.enableUnifiedSyncLane,
+      )
+    ) {
+      React.startTransition(() => {
+        instance.setState(createUpdate('a'));
+        instance.setState(createUpdate('b'));
+        instance.setState(createUpdate('c'));
+      });
+    } else {
       instance.setState(createUpdate('a'));
       instance.setState(createUpdate('b'));
       instance.setState(createUpdate('c'));
-    });
+    }
 
     // Begin the updates but don't flush them yet
     await waitFor(['a', 'b', 'c']);
@@ -267,7 +303,13 @@ describe('ReactIncrementalUpdates', () => {
     });
 
     // The sync updates should have flushed, but not the async ones.
-    if (gate(flags => flags.enableUnifiedSyncLane)) {
+    if (
+      gate(
+        flags =>
+          !flags.forceConcurrentByDefaultForTesting &&
+          flags.enableUnifiedSyncLane,
+      )
+    ) {
       assertLog(['d', 'e', 'f']);
     } else {
       // Update d was dropped and replaced by e.
@@ -278,7 +320,13 @@ describe('ReactIncrementalUpdates', () => {
     // Now flush the remaining work. Even though e and f were already processed,
     // they should be processed again, to ensure that the terminal state
     // is deterministic.
-    if (gate(flags => !flags.enableUnifiedSyncLane)) {
+    if (
+      gate(
+        flags =>
+          !flags.forceConcurrentByDefaultForTesting &&
+          !flags.enableUnifiedSyncLane,
+      )
+    ) {
       await waitForAll([
         // Since 'g' is in a transition, we'll process 'd' separately first.
         // That causes us to process 'd' with 'e' and 'f' rebased.
@@ -567,8 +615,8 @@ describe('ReactIncrementalUpdates', () => {
         </>,
       );
     });
-    await waitFor(['A']);
 
+    await waitFor(['A']);
     // This will expire the rest of the update
     Scheduler.unstable_advanceTime(10000);
     await waitFor(['B'], {
@@ -588,6 +636,7 @@ describe('ReactIncrementalUpdates', () => {
         </>,
       );
     });
+
     // The transition should not have expired, so we should be able to
     // partially render it.
     await waitFor(['A']);

@@ -18,7 +18,6 @@ export const {
   disableInputAttributeSyncing,
   disableIEWorkarounds,
   enableTrustedTypesIntegration,
-  revertRemovalOfSiblingPrerendering,
   replayFailedUnitOfWorkWithInvokeGuardedCallback,
   enableLegacyFBSupport,
   enableDebugTracing,
@@ -28,6 +27,11 @@ export const {
   enableTransitionTracing,
   enableCustomElementPropertySupport,
   enableDeferRootSchedulingToMicrotask,
+  diffInCommitPhase,
+  enableAsyncActions,
+  alwaysThrottleRetries,
+  enableDO_NOT_USE_disableStrictPassiveEffect,
+  disableSchedulerTimeoutInWorkLoop,
 } = dynamicFeatureFlags;
 
 // On WWW, __EXPERIMENTAL__ is used for a new modern build.
@@ -45,10 +49,8 @@ export const createRootStrictEffectsByDefault = false;
 export const enableSuspenseAvoidThisFallback = true;
 export const enableSuspenseAvoidThisFallbackFizz = false;
 
-export const disableSchedulerTimeoutInWorkLoop = false;
 export const enableCPUSuspense = true;
 export const enableFloat = true;
-export const enableUseHook = true;
 export const enableUseMemoCacheHook = true;
 export const enableUseEffectEventHook = true;
 export const enableHostSingletons = true;
@@ -70,6 +72,10 @@ export const enableCache = true;
 export const enableLegacyCache = true;
 export const enableCacheElement = true;
 export const enableFetchInstrumentation = false;
+
+export const enableFormActions = false;
+
+export const enableBinaryFlight = true;
 
 export const disableJavaScriptURLs = true;
 
@@ -96,11 +102,10 @@ export const allowConcurrentByDefault = true;
 export const consoleManagedByDevToolsDuringStrictMode = true;
 export const enableServerContext = true;
 
-// Some www surfaces are still using this. Remove once they have been migrated.
-export const enableUseMutableSource = true;
-
 export const useModernStrictMode = false;
 export const enableFizzExternalRuntime = true;
+
+export const forceConcurrentByDefaultForTesting = false;
 
 // Flow magic to verify the exports of this file match the original version.
 ((((null: any): ExportsType): FeatureFlagsType): ExportsType);

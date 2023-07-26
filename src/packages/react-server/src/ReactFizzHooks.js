@@ -10,30 +10,29 @@
 import type {Dispatcher} from 'react-reconciler/src/ReactInternalTypes';
 
 import type {
-  MutableSource,
-  MutableSourceGetSnapshotFn,
-  MutableSourceSubscribeFn,
   ReactContext,
   StartTransitionOptions,
   Thenable,
   Usable,
 } from 'shared/ReactTypes';
 
-import type {ResponseState} from './ReactServerFormatConfig';
+import type {ResponseState} from './ReactFizzConfig';
 import type {Task} from './ReactFizzServer';
 import type {ThenableState} from './ReactFizzThenable';
+import type {TransitionStatus} from './ReactFizzConfig';
 
 import {readContext as readContextImpl} from './ReactFizzNewContext';
 import {getTreeId} from './ReactFizzTreeContext';
 import {createThenableState, trackUsedThenable} from './ReactFizzThenable';
 
-import {makeId} from './ReactServerFormatConfig';
+import {makeId, NotPendingTransition} from './ReactFizzConfig';
 
 import {
   enableCache,
-  enableUseHook,
   enableUseEffectEventHook,
   enableUseMemoCacheHook,
+  enableAsyncActions,
+  enableFormActions,
 } from 'shared/ReactFeatureFlags';
 import is from 'shared/objectIs';
 import {
@@ -503,18 +502,6 @@ export function useEffectEvent<Args, Return, F: (...Array<Args>) => Return>(
   return throwOnUseEffectEventCall;
 }
 
-// TODO Decide on how to implement this hook for server rendering.
-// If a mutation occurs during render, consider triggering a Suspense boundary
-// and falling back to client rendering.
-function useMutableSource<Source, Snapshot>(
-  source: MutableSource<Source>,
-  getSnapshot: MutableSourceGetSnapshotFn<Source, Snapshot>,
-  subscribe: MutableSourceSubscribeFn<Source, Snapshot>,
-): Snapshot {
-  resolveCurrentlyRenderingComponent();
-  return getSnapshot(source._source);
-}
-
 function useSyncExternalStore<T>(
   subscribe: (() => void) => () => void,
   getSnapshot: () => T,
@@ -544,6 +531,23 @@ function useTransition(): [
 ] {
   resolveCurrentlyRenderingComponent();
   return [false, unsupportedStartTransition];
+}
+
+function useHostTransitionStatus(): TransitionStatus {
+  resolveCurrentlyRenderingComponent();
+  return NotPendingTransition;
+}
+
+function unsupportedSetOptimisticState() {
+  throw new Error('Cannot update optimistic state while rendering.');
+}
+
+function useOptimistic<S, A>(
+  passthrough: S,
+  reducer: ?(S, A) => S,
+): [S, (A) => void] {
+  resolveCurrentlyRenderingComponent();
+  return [passthrough, unsupportedSetOptimisticState];
 }
 
 function useId(): string {
@@ -610,6 +614,7 @@ function noop(): void {}
 
 export const HooksDispatcher: Dispatcher = {
   readContext,
+  use,
   useContext,
   useMemo,
   useReducer,
@@ -628,7 +633,6 @@ export const HooksDispatcher: Dispatcher = {
   useTransition,
   useId,
   // Subscriptions are not setup in a server environment.
-  useMutableSource,
   useSyncExternalStore,
 };
 
@@ -641,8 +645,11 @@ if (enableUseEffectEventHook) {
 if (enableUseMemoCacheHook) {
   HooksDispatcher.useMemoCache = useMemoCache;
 }
-if (enableUseHook) {
-  HooksDispatcher.use = use;
+if (enableFormActions && enableAsyncActions) {
+  HooksDispatcher.useHostTransitionStatus = useHostTransitionStatus;
+}
+if (enableAsyncActions) {
+  HooksDispatcher.useOptimistic = useOptimistic;
 }
 
 export let currentResponseState: null | ResponseState = (null: any);

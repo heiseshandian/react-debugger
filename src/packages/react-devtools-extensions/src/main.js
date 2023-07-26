@@ -6,7 +6,6 @@ import {createRoot} from 'react-dom/client';
 import Bridge from 'react-devtools-shared/src/bridge';
 import Store from 'react-devtools-shared/src/devtools/store';
 import {IS_CHROME, IS_EDGE, getBrowserTheme} from './utils';
-import {LOCAL_STORAGE_TRACE_UPDATES_ENABLED_KEY} from 'react-devtools-shared/src/constants';
 import {registerDevToolsEventLogger} from 'react-devtools-shared/src/registerDevToolsEventLogger';
 import {
   getAppendComponentStack,
@@ -21,7 +20,10 @@ import {
   localStorageSetItem,
 } from 'react-devtools-shared/src/storage';
 import DevTools from 'react-devtools-shared/src/devtools/views/DevTools';
-import {__DEBUG__} from 'react-devtools-shared/src/constants';
+import {
+  __DEBUG__,
+  LOCAL_STORAGE_TRACE_UPDATES_ENABLED_KEY,
+} from 'react-devtools-shared/src/constants';
 import {logEvent} from 'react-devtools-shared/src/Logger';
 
 const LOCAL_STORAGE_SUPPORTS_PROFILING_KEY =
@@ -189,7 +191,7 @@ function createPanelIfReactLoaded() {
           chrome.runtime.sendMessage({
             source: 'react-devtools-main',
             payload: {
-              type: 'react-devtools-inject-backend',
+              type: 'react-devtools-inject-backend-manager',
               tabId,
             },
           });
@@ -197,7 +199,7 @@ function createPanelIfReactLoaded() {
           // Firefox does not support executing script in ExecutionWorld.MAIN from content script.
           // see prepareInjection.js
           chrome.devtools.inspectedWindow.eval(
-            `window.postMessage({ source: 'react-devtools-inject-backend' }, '*');`,
+            `window.postMessage({ source: 'react-devtools-inject-backend-manager' }, '*');`,
             function (response, evalError) {
               if (evalError) {
                 console.error(evalError);
@@ -473,7 +475,7 @@ function createPanelIfReactLoaded() {
 
       chrome.devtools.panels.create(
         IS_CHROME || IS_EDGE ? '⚛️ Components' : 'Components',
-        '',
+        IS_EDGE ? 'icons/production.svg' : '',
         'panel.html',
         extensionPanel => {
           extensionPanel.onShown.addListener(panel => {
@@ -504,7 +506,7 @@ function createPanelIfReactLoaded() {
 
       chrome.devtools.panels.create(
         IS_CHROME || IS_EDGE ? '⚛️ Profiler' : 'Profiler',
-        '',
+        IS_EDGE ? 'icons/production.svg' : '',
         'panel.html',
         extensionPanel => {
           extensionPanel.onShown.addListener(panel => {

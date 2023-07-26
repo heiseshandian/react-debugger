@@ -116,7 +116,7 @@ describe('ReactDOMServerPartialHydration', () => {
     Offscreen = React.unstable_Offscreen;
     useSyncExternalStore = React.useSyncExternalStore;
     if (gate(flags => flags.enableSuspenseList)) {
-      SuspenseList = React.SuspenseList;
+      SuspenseList = React.unstable_SuspenseList;
     }
 
     const InternalTestUtils = require('internal-test-utils');
@@ -2036,7 +2036,14 @@ describe('ReactDOMServerPartialHydration', () => {
     suspend = true;
 
     await act(async () => {
-      await waitFor(['Before', 'After']);
+      if (gate(flags => flags.forceConcurrentByDefaultForTesting)) {
+        await waitFor(['Before']);
+        // This took a long time to render.
+        Scheduler.unstable_advanceTime(1000);
+        await waitFor(['After']);
+      } else {
+        await waitFor(['Before', 'After']);
+      }
 
       // This will cause us to skip the second row completely.
     });

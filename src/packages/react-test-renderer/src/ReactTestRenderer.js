@@ -12,7 +12,7 @@ import type {
   PublicInstance,
   Instance,
   TextInstance,
-} from './ReactTestHostConfig';
+} from './ReactFiberConfigTestHost';
 
 import * as React from 'react';
 import * as Scheduler from 'scheduler/unstable_mock';
@@ -50,7 +50,7 @@ import getComponentNameFromType from 'shared/getComponentNameFromType';
 import ReactVersion from 'shared/ReactVersion';
 import {checkPropStringCoercion} from 'shared/CheckStringCoercion';
 
-import {getPublicInstance} from './ReactTestHostConfig';
+import {getPublicInstance} from './ReactFiberConfigTestHost';
 import {ConcurrentRoot, LegacyRoot} from 'react-reconciler/src/ReactRootTags';
 import {allowConcurrentByDefault} from 'shared/ReactFeatureFlags';
 
@@ -74,12 +74,11 @@ type ReactTestRendererJSON = {
 };
 type ReactTestRendererNode = ReactTestRendererJSON | string;
 
-type FindOptions = $Shape<{
+type FindOptions = {
   // performs a "greedy" search: if a matching node is found, will continue
   // to search within the matching node's children. (default: true)
-  deep: boolean,
-  ...
-}>;
+  deep?: boolean,
+};
 
 export type Predicate = (node: ReactTestInstance) => ?boolean;
 

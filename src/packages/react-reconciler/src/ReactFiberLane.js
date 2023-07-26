@@ -299,8 +299,8 @@ export function getNextLanes(root: FiberRoot, wipLanes: Lanes): Lanes {
   // time it takes to show the final state, which is what they are actually
   // waiting for.
   //
-  // For those exceptions where entanglement is semantically important, like
-  // useMutableSource, we should ensure that there is no partial work at the
+  // For those exceptions where entanglement is semantically important,
+  // we should ensure that there is no partial work at the
   // time we apply the entanglement.
   const entangledLanes = root.entangledLanes;
   if (entangledLanes !== NoLanes) {
@@ -317,25 +317,6 @@ export function getNextLanes(root: FiberRoot, wipLanes: Lanes): Lanes {
   }
 
   return nextLanes;
-}
-
-export function getMostRecentEventTime(root: FiberRoot, lanes: Lanes): number {
-  const eventTimes = root.eventTimes;
-
-  let mostRecentEventTime = NoTimestamp;
-  while (lanes > 0) {
-    const index = pickArbitraryLaneIndex(lanes);
-    const lane = 1 << index;
-
-    const eventTime = eventTimes[index];
-    if (eventTime > mostRecentEventTime) {
-      mostRecentEventTime = eventTime;
-    }
-
-    lanes &= ~lane;
-  }
-
-  return mostRecentEventTime;
 }
 
 function computeExpirationTime(lane: Lane, currentTime: number) {
@@ -599,11 +580,7 @@ export function createLaneMap<T>(initial: T): LaneMap<T> {
   return laneMap;
 }
 
-export function markRootUpdated(
-  root: FiberRoot,
-  updateLane: Lane,
-  eventTime: number,
-) {
+export function markRootUpdated(root: FiberRoot, updateLane: Lane) {
   root.pendingLanes |= updateLane;
 
   // If there are any suspended transitions, it's possible this new update
@@ -622,12 +599,6 @@ export function markRootUpdated(
     root.suspendedLanes = NoLanes;
     root.pingedLanes = NoLanes;
   }
-
-  const eventTimes = root.eventTimes;
-  const index = laneToIndex(updateLane);
-  // We can always overwrite an existing timestamp because we prefer the most
-  // recent event, and we assume time is monotonically increasing.
-  eventTimes[index] = eventTime;
 }
 
 export function markRootSuspended(root: FiberRoot, suspendedLanes: Lanes) {
@@ -651,10 +622,6 @@ export function markRootPinged(root: FiberRoot, pingedLanes: Lanes) {
   root.pingedLanes |= root.suspendedLanes & pingedLanes;
 }
 
-export function markRootMutableRead(root: FiberRoot, updateLane: Lane) {
-  root.mutableReadLanes |= updateLane & root.pendingLanes;
-}
-
 export function markRootFinished(root: FiberRoot, remainingLanes: Lanes) {
   const noLongerPendingLanes = root.pendingLanes & ~remainingLanes;
 
@@ -665,14 +632,13 @@ export function markRootFinished(root: FiberRoot, remainingLanes: Lanes) {
   root.pingedLanes = NoLanes;
 
   root.expiredLanes &= remainingLanes;
-  root.mutableReadLanes &= remainingLanes;
 
   root.entangledLanes &= remainingLanes;
 
   root.errorRecoveryDisabledLanes &= remainingLanes;
+  root.shellSuspendCounter = 0;
 
   const entanglements = root.entanglements;
-  const eventTimes = root.eventTimes;
   const expirationTimes = root.expirationTimes;
   const hiddenUpdates = root.hiddenUpdates;
 
@@ -683,7 +649,6 @@ export function markRootFinished(root: FiberRoot, remainingLanes: Lanes) {
     const lane = 1 << index;
 
     entanglements[index] = NoLanes;
-    eventTimes[index] = NoTimestamp;
     expirationTimes[index] = NoTimestamp;
 
     const hiddenUpdatesForLane = hiddenUpdates[index];

@@ -15,10 +15,10 @@ import type {
   ChildSet,
   UpdatePayload,
   HoistableRoot,
-} from './ReactFiberHostConfig';
+} from './ReactFiberConfig';
 import type {Fiber, FiberRoot} from './ReactInternalTypes';
 import type {Lanes} from './ReactFiberLane';
-import {NoTimestamp, SyncLane} from './ReactFiberLane';
+import {SyncLane} from './ReactFiberLane';
 import type {SuspenseState, RetryQueue} from './ReactFiberSuspenseComponent';
 import type {UpdateQueue} from './ReactFiberClassUpdateQueue';
 import type {FunctionComponentUpdateQueue} from './ReactFiberHooks';
@@ -54,6 +54,8 @@ import {
   enableFloat,
   enableLegacyHidden,
   enableHostSingletons,
+  diffInCommitPhase,
+  alwaysThrottleRetries,
 } from 'shared/ReactFeatureFlags';
 import {
   FunctionComponent,
@@ -162,7 +164,7 @@ import {
   prepareToCommitHoistables,
   suspendInstance,
   suspendResource,
-} from './ReactFiberHostConfig';
+} from './ReactFiberConfig';
 import {
   captureCommitPhaseError,
   resolveRetryWakeable,
@@ -592,9 +594,10 @@ function commitHookEffectListUnmount(
     do {
       if ((effect.tag & flags) === flags) {
         // Unmount
-        const destroy = effect.destroy;
-        effect.destroy = undefined;
+        const inst = effect.inst;
+        const destroy = inst.destroy;
         if (destroy !== undefined) {
+          inst.destroy = undefined;
           if (enableSchedulingProfiler) {
             if ((flags & HookPassive) !== NoHookEffect) {
               markComponentPassiveEffectUnmountStarted(finishedWork);
@@ -653,7 +656,9 @@ function commitHookEffectListMount(flags: HookFlags, finishedWork: Fiber) {
             setIsRunningInsertionEffect(true);
           }
         }
-        effect.destroy = create();
+        const inst = effect.inst;
+        const destroy = create();
+        inst.destroy = destroy;
         if (__DEV__) {
           if ((flags & HookInsertion) !== NoHookEffect) {
             setIsRunningInsertionEffect(false);
@@ -669,7 +674,6 @@ function commitHookEffectListMount(flags: HookFlags, finishedWork: Fiber) {
         }
 
         if (__DEV__) {
-          const destroy = effect.destroy;
           if (destroy !== undefined && typeof destroy !== 'function') {
             let hookName;
             if ((effect.tag & HookLayout) !== NoFlags) {
@@ -1129,8 +1133,8 @@ function commitLayoutEffectOnFiber(
         }
         break;
       }
+      // Fall through
     }
-    // eslint-disable-next-line-no-fallthrough
     case HostSingleton:
     case HostComponent: {
       recursivelyTraverseLayoutEffects(
@@ -1827,8 +1831,8 @@ function commitPlacement(finishedWork: Fiber): void {
         insertOrAppendPlacementNode(finishedWork, before, parent);
         break;
       }
+      // Fall through
     }
-    // eslint-disable-next-line no-fallthrough
     case HostComponent: {
       const parent: Instance = parentFiber.stateNode;
       if (parentFiber.flags & ContentReset) {
@@ -1851,7 +1855,6 @@ function commitPlacement(finishedWork: Fiber): void {
       insertOrAppendPlacementNodeIntoContainer(finishedWork, before, parent);
       break;
     }
-    // eslint-disable-next-line-no-fallthrough
     default:
       throw new Error(
         'Invalid host parent fiber. This error is likely caused by a bug ' +
@@ -2042,8 +2045,8 @@ function commitDeletionEffectsOnFiber(
         }
         return;
       }
+      // Fall through
     }
-    // eslint-disable-next-line no-fallthrough
     case HostSingleton: {
       if (enableHostSingletons && supportsSingletons) {
         if (!offscreenSubtreeWasHidden) {
@@ -2071,15 +2074,14 @@ function commitDeletionEffectsOnFiber(
 
         return;
       }
+      // Fall through
     }
-    // eslint-disable-next-line no-fallthrough
     case HostComponent: {
       if (!offscreenSubtreeWasHidden) {
         safelyDetachRef(deletedFiber, nearestMountedAncestor);
       }
       // Intentional fallthrough to next branch
     }
-    // eslint-disable-next-line-no-fallthrough
     case HostText: {
       // We only need to remove the nearest host child. Set the host parent
       // to `null` on the stack to indicate that nested children don't
@@ -2190,9 +2192,12 @@ function commitDeletionEffectsOnFiber(
 
             let effect = firstEffect;
             do {
-              const {destroy, tag} = effect;
+              const tag = effect.tag;
+              const inst = effect.inst;
+              const destroy = inst.destroy;
               if (destroy !== undefined) {
                 if ((tag & HookInsertion) !== NoHookEffect) {
+                  inst.destroy = undefined;
                   safelyCallDestroy(
                     deletedFiber,
                     nearestMountedAncestor,
@@ -2205,6 +2210,7 @@ function commitDeletionEffectsOnFiber(
 
                   if (shouldProfile(deletedFiber)) {
                     startLayoutEffectTimer();
+                    inst.destroy = undefined;
                     safelyCallDestroy(
                       deletedFiber,
                       nearestMountedAncestor,
@@ -2212,6 +2218,7 @@ function commitDeletionEffectsOnFiber(
                     );
                     recordLayoutEffectDuration(deletedFiber);
                   } else {
+                    inst.destroy = undefined;
                     safelyCallDestroy(
                       deletedFiber,
                       nearestMountedAncestor,
@@ -2409,7 +2416,7 @@ export function detachOffscreenInstance(instance: OffscreenInstance): void {
   const root = enqueueConcurrentRenderForLane(fiber, SyncLane);
   if (root !== null) {
     instance._pendingVisibility |= OffscreenDetached;
-    scheduleUpdateOnFiber(root, fiber, SyncLane, NoTimestamp);
+    scheduleUpdateOnFiber(root, fiber, SyncLane);
   }
 }
 
@@ -2429,7 +2436,7 @@ export function attachOffscreenInstance(instance: OffscreenInstance): void {
   const root = enqueueConcurrentRenderForLane(fiber, SyncLane);
   if (root !== null) {
     instance._pendingVisibility &= ~OffscreenDetached;
-    scheduleUpdateOnFiber(root, fiber, SyncLane, NoTimestamp);
+    scheduleUpdateOnFiber(root, fiber, SyncLane);
   }
 }
 
@@ -2685,7 +2692,7 @@ function commitMutationEffectsOnFiber(
             const updatePayload: null | UpdatePayload =
               (finishedWork.updateQueue: any);
             finishedWork.updateQueue = null;
-            if (updatePayload !== null) {
+            if (updatePayload !== null || diffInCommitPhase) {
               try {
                 commitUpdate(
                   finishedWork.stateNode,
@@ -2707,8 +2714,8 @@ function commitMutationEffectsOnFiber(
         }
         return;
       }
+      // Fall through
     }
-    // eslint-disable-next-line-no-fallthrough
     case HostSingleton: {
       if (enableHostSingletons && supportsSingletons) {
         if (flags & Update) {
@@ -2727,8 +2734,8 @@ function commitMutationEffectsOnFiber(
           }
         }
       }
+      // Fall through
     }
-    // eslint-disable-next-line-no-fallthrough
     case HostComponent: {
       recursivelyTraverseMutationEffects(root, finishedWork, lanes);
       commitReconciliationEffects(finishedWork);
@@ -2769,7 +2776,7 @@ function commitMutationEffectsOnFiber(
             const updatePayload: null | UpdatePayload =
               (finishedWork.updateQueue: any);
             finishedWork.updateQueue = null;
-            if (updatePayload !== null) {
+            if (updatePayload !== null || diffInCommitPhase) {
               try {
                 commitUpdate(
                   instance,
@@ -2899,17 +2906,35 @@ function commitMutationEffectsOnFiber(
       recursivelyTraverseMutationEffects(root, finishedWork, lanes);
       commitReconciliationEffects(finishedWork);
 
+      // TODO: We should mark a flag on the Suspense fiber itself, rather than
+      // relying on the Offscreen fiber having a flag also being marked. The
+      // reason is that this offscreen fiber might not be part of the work-in-
+      // progress tree! It could have been reused from a previous render. This
+      // doesn't lead to incorrect behavior because we don't rely on the flag
+      // check alone; we also compare the states explicitly below. But for
+      // modeling purposes, we _should_ be able to rely on the flag check alone.
+      // So this is a bit fragile.
+      //
+      // Also, all this logic could/should move to the passive phase so it
+      // doesn't block paint.
       const offscreenFiber: Fiber = (finishedWork.child: any);
-
       if (offscreenFiber.flags & Visibility) {
-        const newState: OffscreenState | null = offscreenFiber.memoizedState;
-        const isHidden = newState !== null;
-        if (isHidden) {
-          const wasHidden =
-            offscreenFiber.alternate !== null &&
-            offscreenFiber.alternate.memoizedState !== null;
-          if (!wasHidden) {
-            // TODO: Move to passive phase
+        // Throttle the appearance and disappearance of Suspense fallbacks.
+        const isShowingFallback =
+          (finishedWork.memoizedState: SuspenseState | null) !== null;
+        const wasShowingFallback =
+          current !== null &&
+          (current.memoizedState: SuspenseState | null) !== null;
+
+        if (alwaysThrottleRetries) {
+          if (isShowingFallback !== wasShowingFallback) {
+            // A fallback is either appearing or disappearing.
+            markCommitTimeOfFallback();
+          }
+        } else {
+          if (isShowingFallback && !wasShowingFallback) {
+            // Old behavior. Only mark when a fallback appears, not when
+            // it disappears.
             markCommitTimeOfFallback();
           }
         }
@@ -3772,7 +3797,6 @@ function commitPassiveMountOnFiber(
       }
       // Intentional fallthrough to next branch
     }
-    // eslint-disable-next-line-no-fallthrough
     default: {
       recursivelyTraversePassiveMountEffects(
         finishedRoot,
@@ -3966,7 +3990,6 @@ export function reconnectPassiveEffects(
       }
       // Intentional fallthrough to next branch
     }
-    // eslint-disable-next-line-no-fallthrough
     default: {
       recursivelyTraverseReconnectPassiveEffects(
         finishedRoot,
@@ -4047,7 +4070,6 @@ function commitAtomicPassiveEffects(
       }
       break;
     }
-    // eslint-disable-next-line-no-fallthrough
     default: {
       recursivelyTraverseAtomicPassiveEffects(
         finishedRoot,
@@ -4550,10 +4572,12 @@ function invokeLayoutEffectMountInDEV(fiber: Fiber): void {
       }
       case ClassComponent: {
         const instance = fiber.stateNode;
-        try {
-          instance.componentDidMount();
-        } catch (error) {
-          captureCommitPhaseError(fiber, fiber.return, error);
+        if (typeof instance.componentDidMount === 'function') {
+          try {
+            instance.componentDidMount();
+          } catch (error) {
+            captureCommitPhaseError(fiber, fiber.return, error);
+          }
         }
         break;
       }

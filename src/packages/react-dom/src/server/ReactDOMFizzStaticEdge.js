@@ -8,7 +8,7 @@
  */
 
 import type {ReactNodeList} from 'shared/ReactTypes';
-import type {BootstrapScriptDescriptor} from 'react-dom-bindings/src/server/ReactDOMServerFormatConfig';
+import type {BootstrapScriptDescriptor} from 'react-dom-bindings/src/server/ReactFizzConfigDOM';
 
 import ReactVersion from 'shared/ReactVersion';
 
@@ -20,9 +20,10 @@ import {
 } from 'react-server/src/ReactFizzServer';
 
 import {
+  createResources,
   createResponseState,
   createRootFormatContext,
-} from 'react-dom-bindings/src/server/ReactDOMServerFormatConfig';
+} from 'react-dom-bindings/src/server/ReactFizzConfigDOM';
 
 type Options = {
   identifierPrefix?: string,
@@ -64,9 +65,12 @@ function prerender(
       };
       resolve(result);
     }
+    const resources = createResources();
     const request = createRequest(
       children,
+      resources,
       createResponseState(
+        resources,
         options ? options.identifierPrefix : undefined,
         undefined,
         options ? options.bootstrapScriptContent : undefined,

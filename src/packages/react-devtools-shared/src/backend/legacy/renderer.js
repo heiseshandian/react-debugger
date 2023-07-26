@@ -17,10 +17,10 @@ import {
 import {getUID, utfEncodeString, printOperationsArray} from '../../utils';
 import {
   cleanForBridge,
-  copyToClipboard,
   copyWithDelete,
   copyWithRename,
   copyWithSet,
+  serializeToString,
 } from '../utils';
 import {
   deletePathInObject,
@@ -244,7 +244,6 @@ export function attach(
           parentIDStack.pop();
           return result;
         } catch (err) {
-          // $FlowFixMe[incompatible-type] found when upgrading Flow
           parentIDStack = [];
           throw err;
         } finally {
@@ -281,7 +280,6 @@ export function attach(
           parentIDStack.pop();
           return result;
         } catch (err) {
-          // $FlowFixMe[incompatible-type] found when upgrading Flow
           parentIDStack = [];
           throw err;
         } finally {
@@ -318,7 +316,6 @@ export function attach(
           parentIDStack.pop();
           return result;
         } catch (err) {
-          // $FlowFixMe[incompatible-type] found when upgrading Flow
           parentIDStack = [];
           throw err;
         } finally {
@@ -350,7 +347,6 @@ export function attach(
 
           return result;
         } catch (err) {
-          // $FlowFixMe[incompatible-type] found when upgrading Flow
           parentIDStack = [];
           throw err;
         } finally {
@@ -701,10 +697,15 @@ export function attach(
     }
   }
 
-  function copyElementPath(id: number, path: Array<string | number>): void {
+  function getSerializedElementValueByPath(
+    id: number,
+    path: Array<string | number>,
+  ): ?string {
     const inspectedElement = inspectElementRaw(id);
     if (inspectedElement !== null) {
-      copyToClipboard(getInObject(inspectedElement, path));
+      const valueToCopy = getInObject(inspectedElement, path);
+
+      return serializeToString(valueToCopy);
     }
   }
 
@@ -1100,12 +1101,16 @@ export function attach(
 
   function unpatchConsoleForStrictMode() {}
 
+  function hasFiberWithId(id: number): boolean {
+    return idToInternalInstanceMap.has(id);
+  }
+
   return {
     clearErrorsAndWarnings,
     clearErrorsForFiberID,
     clearWarningsForFiberID,
     cleanup,
-    copyElementPath,
+    getSerializedElementValueByPath,
     deletePath,
     flushInitialOperations,
     getBestMatchForTrackedPath,
@@ -1123,6 +1128,7 @@ export function attach(
     handleCommitFiberRoot,
     handleCommitFiberUnmount,
     handlePostCommitFiberRoot,
+    hasFiberWithId,
     inspectElement,
     logElementToConsole,
     overrideError,

@@ -27,7 +27,7 @@ import type {
   FormatContext,
   Resources,
   BoundaryResources,
-} from './ReactServerFormatConfig';
+} from './ReactFizzConfig';
 import type {ContextSnapshot} from './ReactFizzNewContext';
 import type {ComponentStackNode} from './ReactFizzComponentStack';
 import type {TreeContext} from './ReactFizzTreeContext';
@@ -71,12 +71,12 @@ import {
   writeHoistables,
   writePostamble,
   hoistResources,
-  prepareToRender,
-  cleanupAfterRender,
   setCurrentlyRenderingBoundaryResourcesTarget,
-  createResources,
   createBoundaryResources,
-} from './ReactServerFormatConfig';
+  prepareHostDispatcher,
+  supportsRequestStorage,
+  requestStorage,
+} from './ReactFizzConfig';
 import {
   constructClassInstance,
   mountClassInstance,
@@ -210,6 +210,7 @@ const CLOSED = 2;
 
 export opaque type Request = {
   destination: null | Destination,
+  flushScheduled: boolean,
   +responseState: ResponseState,
   +progressiveChunkSize: number,
   status: 0 | 1 | 2,
@@ -268,6 +269,7 @@ function noop(): void {}
 
 export function createRequest(
   children: ReactNodeList,
+  resources: Resources,
   responseState: ResponseState,
   rootFormatContext: FormatContext,
   progressiveChunkSize: void | number,
@@ -277,11 +279,12 @@ export function createRequest(
   onShellError: void | ((error: mixed) => void),
   onFatalError: void | ((error: mixed) => void),
 ): Request {
+  prepareHostDispatcher();
   const pingedTasks: Array<Task> = [];
   const abortSet: Set<Task> = new Set();
-  const resources: Resources = createResources();
   const request: Request = {
     destination: null,
+    flushScheduled: false,
     responseState,
     progressiveChunkSize:
       progressiveChunkSize === undefined
@@ -332,10 +335,22 @@ export function createRequest(
   return request;
 }
 
+let currentRequest: null | Request = null;
+
+export function resolveRequest(): null | Request {
+  if (currentRequest) return currentRequest;
+  if (supportsRequestStorage) {
+    const store = requestStorage.getStore();
+    if (store) return store;
+  }
+  return null;
+}
+
 function pingTask(request: Request, task: Task): void {
   const pingedTasks = request.pingedTasks;
   pingedTasks.push(task);
-  if (pingedTasks.length === 1) {
+  if (request.pingedTasks.length === 1) {
+    request.flushScheduled = request.destination !== null;
     scheduleWork(() => performWork(request));
   }
 }
@@ -1224,7 +1239,6 @@ function renderElement(
       }
       throw new Error('ReactDOMServer does not yet support scope components.');
     }
-    // eslint-disable-next-line-no-fallthrough
     case REACT_SUSPENSE_TYPE: {
       if (
         enableSuspenseAvoidThisFallbackFizz &&
@@ -1379,7 +1393,6 @@ function renderNodeDestructiveImpl(
           'Portals are not currently supported by the server renderer. ' +
             'Render them conditionally so that they only appear on the client render.',
         );
-      // eslint-disable-next-line-no-fallthrough
       case REACT_LAZY_TYPE: {
         const lazyNode: LazyComponentType<any, any> = (node: any);
         const payload = lazyNode._payload;
@@ -1589,8 +1602,11 @@ function spawnNewSuspendedTask(
 // This is a non-destructive form of rendering a node. If it suspends it spawns
 // a new task and restores the context of this task to what it was before.
 function renderNode(request: Request, task: Task, node: ReactNodeList): void {
-  // TODO: Store segment.children.length here and reset it in case something
+  // Store how much we've pushed at this point so we can reset it in case something
   // suspended partially through writing something.
+  const segment = task.blockedSegment;
+  const childrenLength = segment.children.length;
+  const chunkLength = segment.chunks.length;
 
   // Snapshot the current context in case something throws to interrupt the
   // process.
@@ -1605,6 +1621,10 @@ function renderNode(request: Request, task: Task, node: ReactNodeList): void {
     return renderNodeDestructive(request, task, null, node);
   } catch (thrownValue) {
     resetHooksState();
+
+    // Reset the write pointers to where we started.
+    segment.children.length = childrenLength;
+    segment.chunks.length = chunkLength;
 
     const x =
       thrownValue === SuspenseException
@@ -1881,6 +1901,9 @@ function retryTask(request: Request, task: Task): void {
     prevTaskInDEV = currentTaskInDEV;
     currentTaskInDEV = task;
   }
+
+  const childrenLength = segment.children.length;
+  const chunkLength = segment.chunks.length;
   try {
     // We call the destructive form that mutates this task. That way if something
     // suspends again, we can reuse the same task instead of spawning a new one.
@@ -1904,6 +1927,10 @@ function retryTask(request: Request, task: Task): void {
     finishedTask(request, task.blockedBoundary, segment);
   } catch (thrownValue) {
     resetHooksState();
+
+    // Reset the write pointers to where we started.
+    segment.children.length = childrenLength;
+    segment.chunks.length = chunkLength;
 
     const x =
       thrownValue === SuspenseException
@@ -1949,7 +1976,9 @@ export function performWork(request: Request): void {
     ReactCurrentCache.current = DefaultCacheDispatcher;
   }
 
-  const previousHostDispatcher = prepareToRender(request.resources);
+  const prevRequest = currentRequest;
+  currentRequest = request;
+
   let prevGetCurrentStackImpl;
   if (__DEV__) {
     prevGetCurrentStackImpl = ReactDebugCurrentFrame.getCurrentStack;
@@ -1977,7 +2006,6 @@ export function performWork(request: Request): void {
     if (enableCache) {
       ReactCurrentCache.current = prevCacheDispatcher;
     }
-    cleanupAfterRender(previousHostDispatcher);
 
     if (__DEV__) {
       ReactDebugCurrentFrame.getCurrentStack = prevGetCurrentStackImpl;
@@ -1992,6 +2020,7 @@ export function performWork(request: Request): void {
       // we'll to restore the context to what it was before returning.
       switchContext(prevContext);
     }
+    currentRequest = prevRequest;
   }
 }
 
@@ -2313,7 +2342,12 @@ function flushCompletedQueues(
         // We haven't flushed the root yet so we don't need to check any other branches further down
         return;
       }
-    } else if (enableFloat) {
+    } else if (request.pendingRootTasks > 0) {
+      // We have not yet flushed the root segment so we early return
+      return;
+    }
+
+    if (enableFloat) {
       writeHoistables(destination, request.resources, request.responseState);
     }
 
@@ -2391,6 +2425,7 @@ function flushCompletedQueues(
       // We don't need to check any partially completed segments because
       // either they have pending task or they're complete.
     ) {
+      request.flushScheduled = false;
       if (enableFloat) {
         writePostamble(destination, request.responseState);
       }
@@ -2413,7 +2448,27 @@ function flushCompletedQueues(
 }
 
 export function startWork(request: Request): void {
-  scheduleWork(() => performWork(request));
+  request.flushScheduled = request.destination !== null;
+  if (supportsRequestStorage) {
+    scheduleWork(() => requestStorage.run(request, performWork, request));
+  } else {
+    scheduleWork(() => performWork(request));
+  }
+}
+
+function enqueueFlush(request: Request): void {
+  if (
+    request.flushScheduled === false &&
+    // If there are pinged tasks we are going to flush anyway after work completes
+    request.pingedTasks.length === 0 &&
+    // If there is no destination there is nothing we can flush to. A flush will
+    // happen when we start flowing again
+    request.destination !== null
+  ) {
+    const destination = request.destination;
+    request.flushScheduled = true;
+    scheduleWork(() => flushCompletedQueues(request, destination));
+  }
 }
 
 export function startFlowing(request: Request, destination: Destination): void {
@@ -2457,4 +2512,12 @@ export function abort(request: Request, reason: mixed): void {
     logRecoverableError(request, error);
     fatalError(request, error);
   }
+}
+
+export function flushResources(request: Request): void {
+  enqueueFlush(request);
+}
+
+export function getResources(request: Request): Resources {
+  return request.resources;
 }

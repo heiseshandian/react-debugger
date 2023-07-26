@@ -4,6 +4,66 @@
 
 ---
 
+### 4.28.0
+July 4, 2023
+
+#### Features
+* feat[devtools]: support x_google_ignoreList source maps extension ([hoxyq](https://github.com/hoxyq) in [#26951](https://github.com/facebook/react/pull/26951))
+
+#### Bugfixes
+* fix: check if fiber is unmounted before trying to highlight ([hoxyq](https://github.com/hoxyq) in [#26983](https://github.com/facebook/react/pull/26983))
+* fix: display NaN as string in values ([hoxyq](https://github.com/hoxyq) in [#26947](https://github.com/facebook/react/pull/26947))
+* fix: devtools cannot be closed correctly ([Jack-Works](https://github.com/Jack-Works) in [#25510](https://github.com/facebook/react/pull/25510))
+* fix: supported inspect mode on Shadow dom ([Biki-das](https://github.com/Biki-das) in [#26888](https://github.com/facebook/react/pull/26888))
+* fix: updated strict mode badge URL ([ibrahemid](https://github.com/ibrahemid) in [#26825](https://github.com/facebook/react/pull/26825))
+
+#### Other
+* chore: upgrade to webpack v5 ([hoxyq](https://github.com/hoxyq) in [#26887](https://github.com/facebook/react/pull/26887))
+* chore: removed unused CSS ([Biki-das](https://github.com/Biki-das) in [#27032](https://github.com/facebook/react/pull/27032))
+
+---
+
+### 4.27.8
+May 17, 2023
+
+#### Bugfixes
+* Fixed duplicated backend activation with multiple renderers ([hoxyq](https://github.com/hoxyq) in [#26807](https://github.com/facebook/react/pull/26807))
+
+---
+
+### 4.27.7
+May 4, 2023
+
+#### Bugfixes
+* Fixed to work when browser devtools panel is reopened ([hoxyq](https://github.com/hoxyq) in [#26779](https://github.com/facebook/react/pull/26779))
+* Fixed to work in Chrome incognito mode ([hoxyq](https://github.com/hoxyq) in [#26765](https://github.com/facebook/react/pull/26765))
+
+---
+
+### 4.27.6
+April 20, 2023
+
+#### Bugfixes
+* Fixed backend injection logic for undocked devtools window ([mondaychen](https://github.com/mondaychen) in [#26665](https://github.com/facebook/react/pull/26665))
+
+#### Other
+* Use backend manager to support multiple backends in extension ([mondaychen](https://github.com/mondaychen) in [#26615](https://github.com/facebook/react/pull/26615))
+
+---
+
+### 4.27.5
+April 17, 2023
+
+#### Bugfixes
+* Fixed copying to clipboard from context menu on Chrome ([hoxyq](https://github.com/hoxyq) in [#26604](https://github.com/facebook/react/pull/26604))
+* Fixed external link behavior in the standalone app ([Willie-Boy](https://github.com/Willie-Boy) in [#26559](https://github.com/facebook/react/pull/26559))
+
+#### Other
+* Provide icon to edge devtools. ([harrygz889](https://github.com/harrygz889) in [#26543](https://github.com/facebook/react/pull/26543))
+* Forbid editing class instances in props ([hoxyq](https://github.com/hoxyq) in [#26522](https://github.com/facebook/react/pull/26522))
+* Improved script injection logic in browser extension ([mondaychen](https://github.com/mondaychen) in [#26492](https://github.com/facebook/react/pull/26492))
+---
+
 ### 4.27.4
 March 24, 2023
 

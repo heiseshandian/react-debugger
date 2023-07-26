@@ -1948,6 +1948,7 @@ describe('ReactIncremental', () => {
         </Intl>,
       );
     });
+
     await waitFor([
       'Intl {}',
       'ShowLocale {"locale":"fr"}',

@@ -10,7 +10,6 @@
 import type {Fiber} from './ReactInternalTypes';
 import type {Lanes} from './ReactFiberLane';
 import type {UpdateQueue} from './ReactFiberClassUpdateQueue';
-import type {Flags} from './ReactFiberFlags';
 
 import {
   LayoutStatic,
@@ -64,11 +63,7 @@ import {
   emptyContextObject,
 } from './ReactFiberContext';
 import {readContext, checkIfContextChanged} from './ReactFiberNewContext';
-import {
-  requestEventTime,
-  requestUpdateLane,
-  scheduleUpdateOnFiber,
-} from './ReactFiberWorkLoop';
+import {requestUpdateLane, scheduleUpdateOnFiber} from './ReactFiberWorkLoop';
 import {logForceUpdateScheduled, logStateUpdateScheduled} from './DebugTracing';
 import {
   markForceUpdateScheduled,
@@ -213,8 +208,7 @@ const classComponentUpdater = {
 
     const root = enqueueUpdate(fiber, update, lane);
     if (root !== null) {
-      const eventTime = requestEventTime();
-      scheduleUpdateOnFiber(root, fiber, lane, eventTime);
+      scheduleUpdateOnFiber(root, fiber, lane);
       entangleTransitions(root, fiber, lane);
     }
 
@@ -248,8 +242,7 @@ const classComponentUpdater = {
 
     const root = enqueueUpdate(fiber, update, lane);
     if (root !== null) {
-      const eventTime = requestEventTime();
-      scheduleUpdateOnFiber(root, fiber, lane, eventTime);
+      scheduleUpdateOnFiber(root, fiber, lane);
       entangleTransitions(root, fiber, lane);
     }
 
@@ -283,8 +276,7 @@ const classComponentUpdater = {
 
     const root = enqueueUpdate(fiber, update, lane);
     if (root !== null) {
-      const eventTime = requestEventTime();
-      scheduleUpdateOnFiber(root, fiber, lane, eventTime);
+      scheduleUpdateOnFiber(root, fiber, lane);
       entangleTransitions(root, fiber, lane);
     }
 
@@ -904,11 +896,10 @@ function mountClassInstance(
   }
 
   if (typeof instance.componentDidMount === 'function') {
-    let fiberFlags: Flags = Update | LayoutStatic;
-    if (__DEV__ && (workInProgress.mode & StrictEffectsMode) !== NoMode) {
-      fiberFlags |= MountLayoutDev;
-    }
-    workInProgress.flags |= fiberFlags;
+    workInProgress.flags |= Update | LayoutStatic;
+  }
+  if (__DEV__ && (workInProgress.mode & StrictEffectsMode) !== NoMode) {
+    workInProgress.flags |= MountLayoutDev;
   }
 }
 
@@ -978,11 +969,10 @@ function resumeMountClassInstance(
     // If an update was already in progress, we should schedule an Update
     // effect even though we're bailing out, so that cWU/cDU are called.
     if (typeof instance.componentDidMount === 'function') {
-      let fiberFlags: Flags = Update | LayoutStatic;
-      if (__DEV__ && (workInProgress.mode & StrictEffectsMode) !== NoMode) {
-        fiberFlags |= MountLayoutDev;
-      }
-      workInProgress.flags |= fiberFlags;
+      workInProgress.flags |= Update | LayoutStatic;
+    }
+    if (__DEV__ && (workInProgress.mode & StrictEffectsMode) !== NoMode) {
+      workInProgress.flags |= MountLayoutDev;
     }
     return false;
   }
@@ -1025,21 +1015,19 @@ function resumeMountClassInstance(
       }
     }
     if (typeof instance.componentDidMount === 'function') {
-      let fiberFlags: Flags = Update | LayoutStatic;
-      if (__DEV__ && (workInProgress.mode & StrictEffectsMode) !== NoMode) {
-        fiberFlags |= MountLayoutDev;
-      }
-      workInProgress.flags |= fiberFlags;
+      workInProgress.flags |= Update | LayoutStatic;
+    }
+    if (__DEV__ && (workInProgress.mode & StrictEffectsMode) !== NoMode) {
+      workInProgress.flags |= MountLayoutDev;
     }
   } else {
     // If an update was already in progress, we should schedule an Update
     // effect even though we're bailing out, so that cWU/cDU are called.
     if (typeof instance.componentDidMount === 'function') {
-      let fiberFlags: Flags = Update | LayoutStatic;
-      if (__DEV__ && (workInProgress.mode & StrictEffectsMode) !== NoMode) {
-        fiberFlags |= MountLayoutDev;
-      }
-      workInProgress.flags |= fiberFlags;
+      workInProgress.flags |= Update | LayoutStatic;
+    }
+    if (__DEV__ && (workInProgress.mode & StrictEffectsMode) !== NoMode) {
+      workInProgress.flags |= MountLayoutDev;
     }
 
     // If shouldComponentUpdate returned false, we should still update the
